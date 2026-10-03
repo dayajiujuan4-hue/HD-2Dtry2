@@ -1,25 +1,13 @@
 /* ==========================================================
    杭州探索録3｜夜行杭州
-   HIGH DENSITY DISTRICT Ver.0.7
+   GAME Ver.0.8
 
-   Ver.0.6のビル品質を維持しながら
-   ・高密度路地
-   ・屋台
-   ・自転車
-   ・スクーター
-   ・自販機
-   ・室外機群
-   ・ゴミ / 段ボール
-   ・植木鉢
-   ・ベンチ
-   ・工事柵
-   ・配電盤
-   ・水たまり
-   ・電線
-   ・ネオン反射
-   ・NPCの生活感
-   ・3つの建物内部
-   を統合した完全版
+   MULTI MAP + CHARACTER REDESIGN
+
+   MAP 01 : 钱江新城
+   MAP 02 : 杭州旧城区
+
+   world.js Ver.0.8 専用
 ========================================================== */
 
 
@@ -42,16 +30,13 @@ const locationTitle =
 const locationSub =
   document.getElementById("locationSub");
 
-
 let W = 0;
 let H = 0;
 
-const DPR =
-  Math.min(
-    window.devicePixelRatio || 1,
-    2
-  );
-
+const DPR = Math.min(
+  window.devicePixelRatio || 1,
+  2
+);
 
 function resize() {
 
@@ -71,7 +56,6 @@ function resize() {
   );
 }
 
-
 window.addEventListener(
   "resize",
   resize
@@ -84,6 +68,12 @@ resize();
    STATE
 ========================================================== */
 
+let currentMapId = START_MAP;
+
+applyMapGlobals(
+  currentMapId
+);
+
 let scene = "city";
 
 let currentInterior = null;
@@ -91,8 +81,41 @@ let currentInterior = null;
 let interactionTarget = null;
 
 let returnPosition = {
-  x: 1800,
-  y: 3500
+  mapId: START_MAP,
+  x: MAPS[START_MAP].playerSpawn.x,
+  y: MAPS[START_MAP].playerSpawn.y
+};
+
+
+/* ==========================================================
+   TRANSITION
+========================================================== */
+
+const transition = {
+
+  active: false,
+
+  phase: "idle",
+
+  alpha: 0,
+
+  timer: 0,
+
+  targetMap: null,
+
+  targetX: 0,
+
+  targetY: 0,
+
+  title: "",
+
+  subtitle: "",
+
+  chapter: "",
+
+  weather: "",
+
+  clock: ""
 };
 
 
@@ -102,18 +125,27 @@ let returnPosition = {
 
 const player = {
 
-  x: 1800,
-  y: 3500,
+  x: MAPS[START_MAP].playerSpawn.x,
+
+  y: MAPS[START_MAP].playerSpawn.y,
 
   radius: 18,
 
-  speed: 260,
+  speed: 270,
 
   moving: false,
 
   step: 0,
 
-  direction: "up"
+  direction: "up",
+
+  type: "player",
+
+  gender: "male",
+
+  palette: "player",
+
+  action: "walk"
 };
 
 
@@ -132,33 +164,43 @@ const keys = {};
 
 let ePressed = false;
 
-
 window.addEventListener(
   "keydown",
-  e => {
+  event => {
 
     const key =
-      e.key.toLowerCase();
+      event.key.toLowerCase();
 
     keys[key] = true;
 
     if (
       key === "e" &&
-      !e.repeat
+      !event.repeat
     ) {
 
       ePressed = true;
     }
+
+    if (
+      [
+        "arrowup",
+        "arrowdown",
+        "arrowleft",
+        "arrowright"
+      ].includes(key)
+    ) {
+
+      event.preventDefault();
+    }
   }
 );
 
-
 window.addEventListener(
   "keyup",
-  e => {
+  event => {
 
     keys[
-      e.key.toLowerCase()
+      event.key.toLowerCase()
     ] = false;
   }
 );
@@ -185,8 +227,10 @@ function clamp(
 
 
 function distance(
-  x1, y1,
-  x2, y2
+  x1,
+  y1,
+  x2,
+  y2
 ) {
 
   return Math.hypot(
@@ -222,9 +266,7 @@ function glow(
 function noGlow() {
 
   ctx.shadowBlur = 0;
-
-  ctx.shadowColor =
-    "transparent";
+  ctx.shadowColor = "transparent";
 }
 
 
@@ -301,6 +343,26 @@ function roundRectPath(
 }
 
 
+function getCurrentMap() {
+
+  return MAPS[currentMapId];
+}
+
+
+function isOnScreen(
+  p,
+  margin = 300
+) {
+
+  return !(
+    p.x < -margin ||
+    p.x > W + margin ||
+    p.y < -margin ||
+    p.y > H + margin
+  );
+}
+
+
 /* ==========================================================
    PROJECTION
 ========================================================== */
@@ -341,7 +403,8 @@ function project(
     x:
       W / 2 +
       (
-        x - camera.x
+        x -
+        camera.x
       ) *
       scale,
 
@@ -384,10 +447,12 @@ function circleRectCollision(
     );
 
   const dx =
-    cx - closestX;
+    cx -
+    closestX;
 
   const dy =
-    cy - closestY;
+    cy -
+    closestY;
 
   return (
     dx * dx +
@@ -401,11 +466,15 @@ function circleRectCollision(
 function getCityColliders() {
 
   return BUILDINGS.map(
-    b => ({
-      x: b.x,
-      y: b.y,
-      w: b.w,
-      h: b.h
+    building => ({
+
+      x: building.x,
+
+      y: building.y,
+
+      w: building.w,
+
+      h: building.h
     })
   );
 }
@@ -429,8 +498,6 @@ function getInteriorColliders() {
       {x:790,y:190,w:130,h:390},
 
       {x:120,y:70,w:800,h:90},
-
-      {x:120,y:610,w:300,h:70},
 
       {x:630,y:610,w:300,h:70}
     ];
@@ -479,7 +546,97 @@ function getInteriorColliders() {
   }
 
 
+  if (
+    currentInterior ===
+    "noodle"
+  ) {
+
+    return [
+
+      {x:100,y:80,w:800,h:130},
+
+      {x:120,y:270,w:590,h:80},
+
+      {x:760,y:250,w:130,h:300},
+
+      {x:130,y:470,w:150,h:90},
+
+      {x:350,y:470,w:150,h:90},
+
+      {x:570,y:470,w:150,h:90}
+    ];
+  }
+
+
+  if (
+    currentInterior ===
+    "tea"
+  ) {
+
+    return [
+
+      {x:100,y:80,w:800,h:120},
+
+      {x:130,y:260,w:220,h:110},
+
+      {x:650,y:260,w:220,h:110},
+
+      {x:160,y:500,w:180,h:90},
+
+      {x:660,y:500,w:180,h:90}
+    ];
+  }
+
+
   return [];
+}
+
+
+/* ==========================================================
+   MAP EXIT DETECTION
+========================================================== */
+
+function pointInsideRect(
+  x,
+  y,
+  rect
+) {
+
+  return (
+    x >= rect.x &&
+    x <= rect.x + rect.w &&
+    y >= rect.y &&
+    y <= rect.y + rect.h
+  );
+}
+
+
+function findMapExit(
+  x,
+  y
+) {
+
+  const map =
+    getCurrentMap();
+
+  for (
+    const exit of
+    map.exits || []
+  ) {
+
+    if (
+      pointInsideRect(
+        x,
+        y,
+        exit
+      )
+    ) {
+
+      return exit;
+    }
+  }
+
+  return null;
 }
 
 
@@ -496,11 +653,25 @@ function canMoveTo(
     scene === "city"
   ) {
 
+    /*
+       Exit zones are allowed to touch
+       the actual world boundary.
+    */
+
+    const exit =
+      findMapExit(
+        x,
+        y
+      );
+
     if (
-      x < 40 ||
-      y < 40 ||
-      x > WORLD.width - 40 ||
-      y > WORLD.height - 40
+      !exit &&
+      (
+        x < 35 ||
+        y < 35 ||
+        x > WORLD.width - 35 ||
+        y > WORLD.height - 35
+      )
     ) {
 
       return false;
@@ -536,6 +707,14 @@ function canMoveTo(
 
 
   if (
+    !interior
+  ) {
+
+    return false;
+  }
+
+
+  if (
     x < 50 ||
     y < 50 ||
     x >
@@ -566,6 +745,7 @@ function canMoveTo(
     }
   }
 
+
   return true;
 }
 
@@ -575,6 +755,14 @@ function canMoveTo(
 ========================================================== */
 
 function updatePlayer(dt) {
+
+  if (
+    transition.active
+  ) {
+
+    return;
+  }
+
 
   let dx = 0;
   let dy = 0;
@@ -586,7 +774,9 @@ function updatePlayer(dt) {
   ) {
 
     dy--;
-    player.direction = "up";
+
+    player.direction =
+      "up";
   }
 
 
@@ -596,7 +786,9 @@ function updatePlayer(dt) {
   ) {
 
     dy++;
-    player.direction = "down";
+
+    player.direction =
+      "down";
   }
 
 
@@ -606,7 +798,9 @@ function updatePlayer(dt) {
   ) {
 
     dx--;
-    player.direction = "left";
+
+    player.direction =
+      "left";
   }
 
 
@@ -616,7 +810,9 @@ function updatePlayer(dt) {
   ) {
 
     dx++;
-    player.direction = "right";
+
+    player.direction =
+      "right";
   }
 
 
@@ -635,6 +831,7 @@ function updatePlayer(dt) {
         dy
       );
 
+
     dx /= len;
     dy /= len;
 
@@ -644,6 +841,7 @@ function updatePlayer(dt) {
       dx *
       player.speed *
       dt;
+
 
     const ny =
       player.y +
@@ -675,7 +873,7 @@ function updatePlayer(dt) {
 
 
     player.step +=
-      dt * 10;
+      dt * 10.5;
   }
 
 
@@ -693,16 +891,230 @@ function updatePlayer(dt) {
       camera.y
     ) *
     .10;
+
+
+  if (
+    scene === "city"
+  ) {
+
+    const exit =
+      findMapExit(
+        player.x,
+        player.y
+      );
+
+
+    if (
+      exit &&
+      !transition.active
+    ) {
+
+      beginMapTransition(
+        exit
+      );
+    }
+  }
 }
 
 
 /* ==========================================================
-   INTERACTION
+   MAP TRANSITION
+========================================================== */
+
+function beginMapTransition(
+  exit
+) {
+
+  const target =
+    MAPS[
+      exit.targetMap
+    ];
+
+
+  if (
+    !target
+  ) {
+
+    return;
+  }
+
+
+  transition.active = true;
+
+  transition.phase =
+    "fadeOut";
+
+  transition.alpha = 0;
+
+  transition.timer = 0;
+
+  transition.targetMap =
+    exit.targetMap;
+
+  transition.targetX =
+    exit.targetX;
+
+  transition.targetY =
+    exit.targetY;
+
+  transition.title =
+    target.name;
+
+  transition.subtitle =
+    target.district;
+
+  transition.chapter =
+    target.chapter;
+
+  transition.weather =
+    target.weather;
+
+  transition.clock =
+    target.time;
+
+
+  player.moving = false;
+}
+
+
+function applyMapTransition() {
+
+  currentMapId =
+    transition.targetMap;
+
+
+  applyMapGlobals(
+    currentMapId
+  );
+
+
+  player.x =
+    transition.targetX;
+
+  player.y =
+    transition.targetY;
+
+
+  camera.x =
+    player.x;
+
+  camera.y =
+    player.y;
+
+
+  const map =
+    getCurrentMap();
+
+
+  locationTitle.textContent =
+    map.name;
+
+
+  locationSub.textContent =
+    `${map.englishName} · ${map.district}`;
+
+
+  transition.phase =
+    "title";
+
+  transition.timer = 0;
+}
+
+
+function updateTransition(dt) {
+
+  if (
+    !transition.active
+  ) {
+
+    return;
+  }
+
+
+  if (
+    transition.phase ===
+    "fadeOut"
+  ) {
+
+    transition.alpha +=
+      dt * 2.3;
+
+
+    if (
+      transition.alpha >= 1
+    ) {
+
+      transition.alpha = 1;
+
+      applyMapTransition();
+    }
+  }
+
+
+  else if (
+    transition.phase ===
+    "title"
+  ) {
+
+    transition.timer += dt;
+
+
+    if (
+      transition.timer >
+      1.55
+    ) {
+
+      transition.phase =
+        "fadeIn";
+    }
+  }
+
+
+  else if (
+    transition.phase ===
+    "fadeIn"
+  ) {
+
+    transition.alpha -=
+      dt * 1.65;
+
+
+    if (
+      transition.alpha <= 0
+    ) {
+
+      transition.alpha = 0;
+
+      transition.active = false;
+
+      transition.phase =
+        "idle";
+    }
+  }
+}
+
+
+/* ==========================================================
+   BUILDING INTERACTION
 ========================================================== */
 
 function updateInteraction() {
 
   interactionTarget = null;
+
+
+  if (
+    transition.active
+  ) {
+
+    interactionBox
+      .classList
+      .add("hidden");
+
+    ePressed = false;
+
+    return;
+  }
 
 
   if (
@@ -729,7 +1141,8 @@ function updateInteraction() {
           player.y,
           building.entrance.x,
           building.entrance.y
-        ) < 100
+        ) <
+        105
       ) {
 
         interactionTarget = {
@@ -754,12 +1167,14 @@ function updateInteraction() {
 
 
     if (
+      interior &&
       distance(
         player.x,
         player.y,
         interior.exit.x,
         interior.exit.y
-      ) < 78
+      ) <
+      78
     ) {
 
       interactionTarget = {
@@ -837,50 +1252,95 @@ function updateInteraction() {
    ENTER / EXIT
 ========================================================== */
 
-function enterBuilding(building) {
+function getExteriorReturnPosition(
+  building
+) {
 
-  /*
-     入口が建物の上側か下側かを判定。
-     これにより外へ出た瞬間に
-     建物内部へめり込む問題を防ぐ。
-  */
-
-  const centerY =
-    building.y +
-    building.h / 2;
+  const entrance =
+    building.entrance;
 
 
-  let returnY;
+  const gap = 72;
 
 
-  if (
-    building.entrance.y <
-    centerY
+  switch (
+    entrance.side
   ) {
 
-    returnY =
-      building.y -
-      55;
-  }
+    case "north":
 
-  else {
+      return {
+        x: entrance.x,
+        y: building.y - gap
+      };
 
-    returnY =
-      building.y +
-      building.h +
-      55;
+
+    case "south":
+
+      return {
+        x: entrance.x,
+        y:
+          building.y +
+          building.h +
+          gap
+      };
+
+
+    case "west":
+
+      return {
+        x:
+          building.x -
+          gap,
+
+        y:
+          entrance.y
+      };
+
+
+    case "east":
+
+      return {
+        x:
+          building.x +
+          building.w +
+          gap,
+
+        y:
+          entrance.y
+      };
+
+
+    default:
+
+      return {
+        x: entrance.x,
+        y: entrance.y + gap
+      };
   }
+}
+
+
+function enterBuilding(
+  building
+) {
+
+  const outside =
+    getExteriorReturnPosition(
+      building
+    );
 
 
   returnPosition = {
 
+    mapId:
+      currentMapId,
+
     x:
-      building
-        .entrance
-        .x,
+      outside.x,
 
     y:
-      returnY
+      outside.y
   };
 
 
@@ -896,6 +1356,23 @@ function enterBuilding(building) {
     INTERIORS[
       currentInterior
     ];
+
+
+  if (
+    !interior
+  ) {
+
+    console.error(
+      "Unknown interior:",
+      currentInterior
+    );
+
+    scene = "city";
+
+    currentInterior = null;
+
+    return;
+  }
 
 
   player.x =
@@ -915,6 +1392,7 @@ function enterBuilding(building) {
   locationTitle.textContent =
     interior.title;
 
+
   locationSub.textContent =
     interior.sub;
 }
@@ -923,6 +1401,16 @@ function enterBuilding(building) {
 function exitBuilding() {
 
   scene = "city";
+
+
+  currentMapId =
+    returnPosition.mapId;
+
+
+  applyMapGlobals(
+    currentMapId
+  );
+
 
   currentInterior = null;
 
@@ -941,11 +1429,16 @@ function exitBuilding() {
     player.y;
 
 
+  const map =
+    getCurrentMap();
+
+
   locationTitle.textContent =
-    "夜行杭州";
+    map.name;
+
 
   locationSub.textContent =
-    "HANGZHOU · NIGHT DISTRICT";
+    `${map.englishName} · ${map.district}`;
 }
 
 
@@ -955,130 +1448,125 @@ function exitBuilding() {
 
 function drawNightBackground() {
 
-  const g =
+  const map =
+    getCurrentMap();
+
+
+  const gradient =
     ctx.createLinearGradient(
-      0, 0,
-      0, H
-    );
-
-
-  g.addColorStop(
-    0,
-    "#01030a"
-  );
-
-  g.addColorStop(
-    .34,
-    "#06101a"
-  );
-
-  g.addColorStop(
-    .72,
-    "#10131d"
-  );
-
-  g.addColorStop(
-    1,
-    "#07090e"
-  );
-
-
-  ctx.fillStyle = g;
-
-  ctx.fillRect(
-    0, 0,
-    W, H
-  );
-
-
-  const halo =
-    ctx.createRadialGradient(
-      W * .5,
-      H * .20,
       0,
-
-      W * .5,
-      H * .20,
-      W * .58
+      0,
+      0,
+      H
     );
 
 
-  halo.addColorStop(
-    0,
-    "rgba(42,85,115,.13)"
-  );
+  if (
+    scene === "city" &&
+    map.ambience ===
+    "oldtown"
+  ) {
 
-  halo.addColorStop(
-    1,
-    "rgba(0,0,0,0)"
-  );
+    gradient.addColorStop(
+      0,
+      "#050608"
+    );
+
+    gradient.addColorStop(
+      .35,
+      "#0d1012"
+    );
+
+    gradient.addColorStop(
+      .72,
+      "#171512"
+    );
+
+    gradient.addColorStop(
+      1,
+      "#090908"
+    );
+  }
+
+  else {
+
+    gradient.addColorStop(
+      0,
+      "#01030a"
+    );
+
+    gradient.addColorStop(
+      .34,
+      "#06101a"
+    );
+
+    gradient.addColorStop(
+      .72,
+      "#10131d"
+    );
+
+    gradient.addColorStop(
+      1,
+      "#07090e"
+    );
+  }
 
 
-  ctx.fillStyle = halo;
+  ctx.fillStyle =
+    gradient;
+
 
   ctx.fillRect(
-    0, 0,
-    W, H
+    0,
+    0,
+    W,
+    H
   );
 }
 
 
 /* ==========================================================
-   PLAZA
+   FLOOR
 ========================================================== */
 
-function drawPlaza(plaza) {
+function drawGroundQuad(
+  rect,
+  fill,
+  stroke =
+    "rgba(100,130,138,.15)"
+) {
 
   const a =
     project(
-      plaza.x,
-      plaza.y
+      rect.x,
+      rect.y
     );
 
   const b =
     project(
-      plaza.x +
-      plaza.w,
-      plaza.y
+      rect.x +
+      rect.w,
+      rect.y
     );
 
   const c =
     project(
-      plaza.x +
-      plaza.w,
-      plaza.y +
-      plaza.h
+      rect.x +
+      rect.w,
+      rect.y +
+      rect.h
     );
 
   const d =
     project(
-      plaza.x,
-      plaza.y +
-      plaza.h
+      rect.x,
+      rect.y +
+      rect.h
     );
 
 
-  if (
-    plaza.type === "commercial"
-  ) {
-
-    ctx.fillStyle =
-      "#141b20";
-  }
-
-  else if (
-    plaza.type === "old"
-  ) {
-
-    ctx.fillStyle =
-      "#171613";
-  }
-
-  else {
-
-    ctx.fillStyle =
-      "#182126";
-  }
+  ctx.fillStyle =
+    fill;
 
 
   ctx.beginPath();
@@ -1109,16 +1597,47 @@ function drawPlaza(plaza) {
 
 
   ctx.strokeStyle =
-    "rgba(100,130,138,.18)";
+    stroke;
 
   ctx.lineWidth = 1;
 
   ctx.stroke();
+}
 
 
-  /*
-     石畳の細かい目地
-  */
+function drawPlaza(
+  plaza
+) {
+
+  let fill =
+    "#182126";
+
+
+  if (
+    plaza.type ===
+    "commercial"
+  ) {
+
+    fill =
+      "#141b20";
+  }
+
+
+  if (
+    plaza.type ===
+    "old"
+  ) {
+
+    fill =
+      "#191713";
+  }
+
+
+  drawGroundQuad(
+    plaza,
+    fill
+  );
+
 
   const step = 70;
 
@@ -1149,7 +1668,7 @@ function drawPlaza(plaza) {
 
 
     ctx.strokeStyle =
-      "rgba(130,145,148,.055)";
+      "rgba(140,145,140,.045)";
 
 
     ctx.beginPath();
@@ -1193,10 +1712,6 @@ function drawPlaza(plaza) {
       );
 
 
-    ctx.strokeStyle =
-      "rgba(130,145,148,.055)";
-
-
     ctx.beginPath();
 
     ctx.moveTo(
@@ -1214,71 +1729,25 @@ function drawPlaza(plaza) {
 }
 
 
-/* ==========================================================
-   CITY FLOOR
-========================================================== */
-
 function drawCityFloor() {
 
+  const map =
+    getCurrentMap();
+
+
   ctx.fillStyle =
-    "#11171c";
+    map.ambience ===
+    "oldtown"
+    ? "#171713"
+    : "#11171c";
+
 
   ctx.fillRect(
-    0, 0,
-    W, H
+    0,
+    0,
+    W,
+    H
   );
-
-
-  /*
-     路地以外の街区に
-     微細なコンクリート模様
-  */
-
-  for (
-    let i = 0;
-    i < 130;
-    i++
-  ) {
-
-    const x =
-      noise(
-        i * 13
-      ) *
-      WORLD.width;
-
-    const y =
-      noise(
-        i * 47
-      ) *
-      WORLD.height;
-
-    const p =
-      project(
-        x,
-        y
-      );
-
-
-    if (
-      p.y < -20 ||
-      p.y > H + 20
-    ) {
-
-      continue;
-    }
-
-
-    ctx.fillStyle =
-      "rgba(255,255,255,.018)";
-
-
-    ctx.fillRect(
-      p.x,
-      p.y,
-      2 * p.scale,
-      2 * p.scale
-    );
-  }
 
 
   for (
@@ -1286,97 +1755,70 @@ function drawCityFloor() {
     ROADS
   ) {
 
-    const a =
-      project(
-        road.x,
-        road.y
-      );
-
-    const b =
-      project(
-        road.x +
-        road.w,
-        road.y
-      );
-
-    const c =
-      project(
-        road.x +
-        road.w,
-        road.y +
-        road.h
-      );
-
-    const d =
-      project(
-        road.x,
-        road.y +
-        road.h
-      );
+    let fill =
+      "#0a1015";
 
 
     if (
       road.type ===
-      "backstreet"
-    ) {
-
-      ctx.fillStyle =
-        "#0d1012";
-    }
-
-    else if (
-      road.type ===
       "alley"
     ) {
 
-      ctx.fillStyle =
-        "#0b0e11";
-    }
-
-    else {
-
-      ctx.fillStyle =
-        "#0a1015";
+      fill =
+        map.ambience ===
+        "oldtown"
+        ? "#11110f"
+        : "#0b0e11";
     }
 
 
-    ctx.beginPath();
-
-    ctx.moveTo(
-      a.x,
-      a.y
-    );
-
-    ctx.lineTo(
-      b.x,
-      b.y
-    );
-
-    ctx.lineTo(
-      c.x,
-      c.y
-    );
-
-    ctx.lineTo(
-      d.x,
-      d.y
-    );
-
-    ctx.closePath();
-
-    ctx.fill();
-
-
-    ctx.strokeStyle =
+    else if (
       road.type ===
       "backstreet"
-      ? "rgba(140,105,90,.12)"
-      : "rgba(90,126,139,.19)";
+    ) {
+
+      fill =
+        map.ambience ===
+        "oldtown"
+        ? "#15130f"
+        : "#0d1012";
+    }
 
 
-    ctx.lineWidth = 2;
+    else if (
+      road.type ===
+      "oldmain"
+    ) {
 
-    ctx.stroke();
+      fill =
+        "#151411";
+    }
+
+
+    else if (
+      road.type ===
+      "tiny"
+    ) {
+
+      fill =
+        "#0e0f0d";
+    }
+
+
+    else if (
+      road.type ===
+      "transition"
+    ) {
+
+      fill =
+        "#11161a";
+    }
+
+
+    drawGroundQuad(
+      road,
+      fill
+    );
   }
 
 
@@ -1386,6 +1828,7 @@ function drawCityFloor() {
 
 
   drawRoadDetails();
+
   drawPuddles();
 }
 
@@ -1396,119 +1839,53 @@ function drawCityFloor() {
 
 function drawRoadDetails() {
 
-  /*
-     中央大通りの車線
-  */
+  const map =
+    getCurrentMap();
 
-  for (
-    const x of
-    [
-      1600,
-      1810,
-      2020
-    ]
+
+  if (
+    map.ambience ===
+    "future"
   ) {
 
     for (
-      let y = 80;
-      y < 3850;
-      y += 155
+      const x of
+      [
+        1600,
+        1810,
+        2020
+      ]
     ) {
 
-      const a =
-        project(
-          x,
-          y
-        );
-
-      const b =
-        project(
-          x,
-          y + 72
-        );
-
-
-      ctx.strokeStyle =
-        "rgba(210,220,221,.28)";
-
-
-      ctx.lineWidth =
-        Math.max(
-          1,
-          4 *
-          a.scale
-        );
-
-
-      ctx.beginPath();
-
-      ctx.moveTo(
-        a.x,
-        a.y
-      );
-
-      ctx.lineTo(
-        b.x,
-        b.y
-      );
-
-      ctx.stroke();
-    }
-  }
-
-
-  /*
-     横断歩道
-  */
-
-  const crossings = [
-    1420,
-    2070,
-    3200
-  ];
-
-
-  crossings.forEach(
-    yy => {
-
       for (
-        let i = 0;
-        i < 8;
-        i++
+        let y = 80;
+        y < 3850;
+        y += 155
       ) {
-
-        const x =
-          1490 +
-          i * 82;
-
 
         const a =
           project(
             x,
-            yy
+            y
           );
 
         const b =
           project(
-            x + 45,
-            yy
-          );
-
-        const c =
-          project(
-            x + 45,
-            yy + 70
-          );
-
-        const d =
-          project(
             x,
-            yy + 70
+            y + 72
           );
 
 
-        ctx.fillStyle =
-          "rgba(210,220,220,.16)";
+        ctx.strokeStyle =
+          "rgba(210,220,221,.25)";
+
+
+        ctx.lineWidth =
+          Math.max(
+            1,
+            4 *
+            a.scale
+          );
 
 
         ctx.beginPath();
@@ -1523,100 +1900,103 @@ function drawRoadDetails() {
           b.y
         );
 
-        ctx.lineTo(
-          c.x,
-          c.y
-        );
-
-        ctx.lineTo(
-          d.x,
-          d.y
-        );
-
-        ctx.closePath();
-
-        ctx.fill();
+        ctx.stroke();
       }
     }
-  );
+  }
 
 
-  /*
-     アスファルトの補修跡
-  */
+  else {
 
-  for (
-    let i = 0;
-    i < 150;
-    i++
-  ) {
+    /*
+       旧城区の割れた舗装・補修跡
+    */
 
-    const x =
-      noise(
-        i * 37
-      ) *
-      WORLD.width;
-
-
-    const y =
-      noise(
-        i * 79
-      ) *
-      WORLD.height;
-
-
-    const p =
-      project(
-        x,
-        y
-      );
-
-
-    if (
-      p.y < -30 ||
-      p.y > H + 30
+    for (
+      let i = 0;
+      i < 170;
+      i++
     ) {
 
-      continue;
-    }
+      const x =
+        noise(
+          i * 37
+        ) *
+        WORLD.width;
 
 
-    ctx.strokeStyle =
-      i % 3 === 0
-      ? "rgba(68,180,205,.05)"
-      : "rgba(255,255,255,.022)";
+      const y =
+        noise(
+          i * 79
+        ) *
+        WORLD.height;
 
 
-    ctx.lineWidth =
-      Math.max(
-        .5,
+      const p =
+        project(
+          x,
+          y
+        );
+
+
+      if (
+        !isOnScreen(
+          p,
+          50
+        )
+      ) {
+
+        continue;
+      }
+
+
+      ctx.strokeStyle =
+        i % 5 === 0
+        ? "rgba(166,119,77,.09)"
+        : "rgba(255,255,255,.025)";
+
+
+      ctx.lineWidth =
+        Math.max(
+          .5,
+          p.scale
+        );
+
+
+      ctx.beginPath();
+
+      ctx.moveTo(
+        p.x,
+        p.y
+      );
+
+      ctx.lineTo(
+        p.x +
+        8 *
+        p.scale,
+
+        p.y +
+        17 *
         p.scale
       );
 
+      ctx.lineTo(
+        p.x -
+        4 *
+        p.scale,
 
-    ctx.beginPath();
+        p.y +
+        27 *
+        p.scale
+      );
 
-    ctx.moveTo(
-      p.x,
-      p.y
-    );
-
-    ctx.lineTo(
-      p.x +
-      9 *
-      p.scale,
-
-      p.y +
-      20 *
-      p.scale
-    );
-
-    ctx.stroke();
+      ctx.stroke();
+    }
   }
 
 
   /*
-     マンホール
+     manholes
   */
 
   for (
@@ -1626,16 +2006,27 @@ function drawRoadDetails() {
   ) {
 
     const x =
-      1520 +
-      noise(
-        i * 61
-      ) *
-      560;
+      map.ambience ===
+      "future"
+      ? (
+          1520 +
+          noise(
+            i * 61
+          ) *
+          560
+        )
+      : (
+          300 +
+          noise(
+            i * 61
+          ) *
+          3000
+        );
 
 
     const y =
       180 +
-      i * 150;
+      i * 140;
 
 
     const p =
@@ -1646,8 +2037,10 @@ function drawRoadDetails() {
 
 
     if (
-      p.y < -50 ||
-      p.y > H + 50
+      !isOnScreen(
+        p,
+        50
+      )
     ) {
 
       continue;
@@ -1655,7 +2048,7 @@ function drawRoadDetails() {
 
 
     ctx.fillStyle =
-      "#1d2529";
+      "#1d2525";
 
 
     ctx.beginPath();
@@ -1663,10 +2056,13 @@ function drawRoadDetails() {
     ctx.ellipse(
       p.x,
       p.y,
+
       16 *
       p.scale,
+
       7 *
       p.scale,
+
       0,
       0,
       Math.PI * 2
@@ -1676,7 +2072,7 @@ function drawRoadDetails() {
 
 
     ctx.strokeStyle =
-      "#39464a";
+      "#394644";
 
     ctx.stroke();
   }
@@ -1684,53 +2080,88 @@ function drawRoadDetails() {
 
 
 /* ==========================================================
-   PUDDLES / NEON REFLECTIONS
+   PUDDLES
 ========================================================== */
 
 function drawPuddles() {
 
-  const puddles = [
+  const old =
+    getCurrentMap()
+      .ambience ===
+    "oldtown";
 
-    {
-      x: 1670,
-      y: 2300,
-      rx: 100,
-      ry: 30,
-      color: "#4be8ff"
-    },
 
-    {
-      x: 2020,
-      y: 1770,
-      rx: 130,
-      ry: 36,
-      color: "#d45cff"
-    },
+  const puddles =
+    old
+    ? [
 
-    {
-      x: 1150,
-      y: 2700,
-      rx: 80,
-      ry: 24,
-      color: "#ff5c55"
-    },
+        {
+          x:1750,
+          y:2050,
+          rx:120,
+          ry:31,
+          color:"#ff7658"
+        },
 
-    {
-      x: 2590,
-      y: 2660,
-      rx: 90,
-      ry: 28,
-      color: "#55eaff"
-    },
+        {
+          x:1150,
+          y:1900,
+          rx:90,
+          ry:25,
+          color:"#ffc15d"
+        },
 
-    {
-      x: 1810,
-      y: 3350,
-      rx: 120,
-      ry: 30,
-      color: "#c45cff"
-    }
-  ];
+        {
+          x:2400,
+          y:1950,
+          rx:105,
+          ry:28,
+          color:"#ff5e55"
+        },
+
+        {
+          x:1800,
+          y:2780,
+          rx:120,
+          ry:28,
+          color:"#e57451"
+        }
+      ]
+
+    : [
+
+        {
+          x:1670,
+          y:2300,
+          rx:100,
+          ry:30,
+          color:"#4be8ff"
+        },
+
+        {
+          x:2020,
+          y:1770,
+          rx:130,
+          ry:36,
+          color:"#d45cff"
+        },
+
+        {
+          x:1150,
+          y:2700,
+          rx:80,
+          ry:24,
+          color:"#ff5c55"
+        },
+
+        {
+          x:2590,
+          y:2660,
+          rx:90,
+          ry:28,
+          color:"#55eaff"
+        }
+      ];
 
 
   puddles.forEach(
@@ -1751,7 +2182,7 @@ function drawPuddles() {
 
 
       ctx.fillStyle =
-        "rgba(4,11,15,.72)";
+        "rgba(3,8,10,.70)";
 
 
       ctx.beginPath();
@@ -1759,62 +2190,16 @@ function drawPuddles() {
       ctx.ellipse(
         p.x,
         p.y,
-        puddle.rx * s,
-        puddle.ry * s,
-        noise(index) * .3,
-        0,
-        Math.PI * 2
-      );
 
-      ctx.fill();
-
-
-      const g =
-        ctx.createLinearGradient(
-          p.x,
-          p.y -
-          puddle.ry * s,
-
-          p.x,
-          p.y +
-          puddle.ry * s
-        );
-
-
-      g.addColorStop(
-        0,
-        "rgba(255,255,255,0)"
-      );
-
-      g.addColorStop(
-        .45,
-        puddle.color +
-        "33"
-      );
-
-      g.addColorStop(
-        1,
-        "rgba(255,255,255,0)"
-      );
-
-
-      ctx.fillStyle = g;
-
-
-      ctx.beginPath();
-
-      ctx.ellipse(
-        p.x,
-        p.y,
         puddle.rx *
-        .85 *
         s,
 
         puddle.ry *
-        .65 *
         s,
 
-        0,
+        noise(index) *
+        .2,
+
         0,
         Math.PI * 2
       );
@@ -1822,13 +2207,20 @@ function drawPuddles() {
       ctx.fill();
 
 
+      glow(
+        puddle.color,
+        8 * s
+      );
+
+
       ctx.strokeStyle =
-        "rgba(175,230,240,.10)";
+        puddle.color +
+        "45";
 
 
       ctx.lineWidth =
         Math.max(
-          .5,
+          1,
           s
         );
 
@@ -1836,17 +2228,26 @@ function drawPuddles() {
       ctx.beginPath();
 
       ctx.ellipse(
-        p.x +
-        15 * s,
+        p.x,
         p.y,
-        20 * s,
-        5 * s,
+
+        puddle.rx *
+        .70 *
+        s,
+
+        puddle.ry *
+        .38 *
+        s,
+
         0,
         0,
         Math.PI * 2
       );
 
       ctx.stroke();
+
+
+      noGlow();
     }
   );
 }
@@ -1856,36 +2257,41 @@ function drawPuddles() {
    BUILDING STYLE
 ========================================================== */
 
-function getBuildingStyle(b) {
+function getBuildingStyle(
+  building
+) {
 
   switch (
-    b.visualType
+    building.visualType
   ) {
 
     case "megaTower":
 
       return {
 
-        wall: "#101827",
-        wall2: "#090f1c",
+        wall:"#101827",
+        wall2:"#090f1c",
 
-        frame: "#44395c",
+        frame:"#44395c",
 
-        glass: "#15283b",
+        glass:"#15283b",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .18,
+        warmChance:.18,
 
-        acChance: .04,
+        acChance:.04,
 
-        pipes: false,
+        pipes:false,
 
-        fireEscape: false,
+        fireEscape:false,
 
-        megaScreen: true,
+        megaScreen:true,
 
-        old: false
+        old:false,
+
+        dense:false
       };
 
 
@@ -1893,26 +2299,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#121c22",
-        wall2: "#091116",
+        wall:"#121c22",
+        wall2:"#091116",
 
-        frame: "#39484e",
+        frame:"#39484e",
 
-        glass: "#10232d",
+        glass:"#10232d",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .08,
+        warmChance:.08,
 
-        acChance: .22,
+        acChance:.22,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: true,
+        fireEscape:true,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: false
+        old:false,
+
+        dense:false
       };
 
 
@@ -1920,26 +2329,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#25201e",
-        wall2: "#121110",
+        wall:"#25201e",
+        wall2:"#121110",
 
-        frame: "#55433b",
+        frame:"#55433b",
 
-        glass: "#1e2425",
+        glass:"#1e2425",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .52,
+        warmChance:.52,
 
-        acChance: .47,
+        acChance:.47,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: true,
+        fireEscape:true,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: true
+        old:true,
+
+        dense:false
       };
 
 
@@ -1947,26 +2359,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#2d211d",
-        wall2: "#16110f",
+        wall:"#2d211d",
+        wall2:"#16110f",
 
-        frame: "#60463b",
+        frame:"#60463b",
 
-        glass: "#272322",
+        glass:"#272322",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .68,
+        warmChance:.68,
 
-        acChance: .52,
+        acChance:.52,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: true,
+        fireEscape:true,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: true
+        old:true,
+
+        dense:false
       };
 
 
@@ -1974,26 +2389,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#20292a",
-        wall2: "#111718",
+        wall:"#20292a",
+        wall2:"#111718",
 
-        frame: "#465457",
+        frame:"#465457",
 
-        glass: "#16282d",
+        glass:"#16282d",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .58,
+        warmChance:.58,
 
-        acChance: .50,
+        acChance:.50,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: false,
+        fireEscape:false,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: true
+        old:true,
+
+        dense:false
       };
 
 
@@ -2001,26 +2419,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#12192c",
-        wall2: "#090d19",
+        wall:"#12192c",
+        wall2:"#090d19",
 
-        frame: "#383d65",
+        frame:"#383d65",
 
-        glass: "#122d3c",
+        glass:"#122d3c",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .12,
+        warmChance:.12,
 
-        acChance: .02,
+        acChance:.02,
 
-        pipes: false,
+        pipes:false,
 
-        fireEscape: false,
+        fireEscape:false,
 
-        megaScreen: true,
+        megaScreen:true,
 
-        old: false
+        old:false,
+
+        dense:false
       };
 
 
@@ -2028,26 +2449,29 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#292521",
-        wall2: "#151412",
+        wall:"#292521",
+        wall2:"#151412",
 
-        frame: "#504a43",
+        frame:"#504a43",
 
-        glass: "#252729",
+        glass:"#252729",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .66,
+        warmChance:.66,
 
-        acChance: .55,
+        acChance:.55,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: true,
+        fireEscape:true,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: true
+        old:true,
+
+        dense:false
       };
 
 
@@ -2055,26 +2479,179 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#10232a",
-        wall2: "#081418",
+        wall:"#10232a",
+        wall2:"#081418",
 
-        frame: "#34515a",
+        frame:"#34515a",
 
-        glass: "#10313d",
+        glass:"#10313d",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .16,
+        warmChance:.16,
 
-        acChance: .20,
+        acChance:.20,
 
-        pipes: true,
+        pipes:true,
 
-        fireEscape: false,
+        fireEscape:false,
 
-        megaScreen: true,
+        megaScreen:true,
 
-        old: false
+        old:false,
+
+        dense:false
+      };
+
+
+    case "oldResidentialDense":
+
+      return {
+
+        wall:"#302923",
+        wall2:"#171512",
+
+        frame:"#625247",
+
+        glass:"#202525",
+
+        neon:
+          building.neon,
+
+        warmChance:.72,
+
+        acChance:.72,
+
+        pipes:true,
+
+        fireEscape:true,
+
+        megaScreen:false,
+
+        old:true,
+
+        dense:true
+      };
+
+
+    case "oldShop":
+
+      return {
+
+        wall:"#322820",
+        wall2:"#18130f",
+
+        frame:"#735643",
+
+        glass:"#292522",
+
+        neon:
+          building.neon,
+
+        warmChance:.75,
+
+        acChance:.60,
+
+        pipes:true,
+
+        fireEscape:false,
+
+        megaScreen:false,
+
+        old:true,
+
+        dense:true
+      };
+
+
+    case "fruitShop":
+
+      return {
+
+        wall:"#33281f",
+        wall2:"#19130f",
+
+        frame:"#795b42",
+
+        glass:"#29251f",
+
+        neon:
+          building.neon,
+
+        warmChance:.85,
+
+        acChance:.45,
+
+        pipes:true,
+
+        fireEscape:false,
+
+        megaScreen:false,
+
+        old:true,
+
+        dense:true
+      };
+
+
+    case "noodleShop":
+
+      return {
+
+        wall:"#38231d",
+        wall2:"#1b110e",
+
+        frame:"#70453a",
+
+        glass:"#2a211f",
+
+        neon:
+          building.neon,
+
+        warmChance:.90,
+
+        acChance:.50,
+
+        pipes:true,
+
+        fireEscape:false,
+
+        megaScreen:false,
+
+        old:true,
+
+        dense:true
+      };
+
+
+    case "teaShop":
+
+      return {
+
+        wall:"#252b21",
+        wall2:"#131711",
+
+        frame:"#53614a",
+
+        glass:"#202820",
+
+        neon:
+          building.neon,
+
+        warmChance:.78,
+
+        acChance:.38,
+
+        pipes:true,
+
+        fireEscape:false,
+
+        megaScreen:false,
+
+        old:true,
+
+        dense:true
       };
 
 
@@ -2082,33 +2659,36 @@ function getBuildingStyle(b) {
 
       return {
 
-        wall: "#13252c",
-        wall2: "#091419",
+        wall:"#13252c",
+        wall2:"#091419",
 
-        frame: "#38535b",
+        frame:"#38535b",
 
-        glass: "#12313d",
+        glass:"#12313d",
 
-        neon: b.neon,
+        neon:
+          building.neon,
 
-        warmChance: .23,
+        warmChance:.23,
 
-        acChance: .13,
+        acChance:.13,
 
-        pipes: false,
+        pipes:false,
 
-        fireEscape: false,
+        fireEscape:false,
 
-        megaScreen: false,
+        megaScreen:false,
 
-        old: false
+        old:false,
+
+        dense:false
       };
   }
 }
 
 
 /* ==========================================================
-   WINDOW ROOM
+   WINDOW
 ========================================================== */
 
 function drawWindowRoom(
@@ -2122,7 +2702,8 @@ function drawWindowRoom(
 ) {
 
   const active =
-    noise(seed) > .31;
+    noise(seed) >
+    .30;
 
 
   const warm =
@@ -2132,35 +2713,11 @@ function drawWindowRoom(
     style.warmChance;
 
 
-  const person =
-    noise(
-      seed + 25
-    ) > .72;
-
-
-  const monitor =
-    noise(
-      seed + 31
-    ) > .50;
-
-
-  const plant =
-    noise(
-      seed + 45
-    ) > .78;
-
-
-  const blinds =
-    noise(
-      seed + 59
-    ) > .76;
-
-
   ctx.fillStyle =
     active
     ? (
         warm
-        ? "rgba(172,103,55,.31)"
+        ? "rgba(183,112,59,.33)"
         : "rgba(31,103,128,.27)"
       )
     : "rgba(2,7,10,.91)";
@@ -2178,30 +2735,38 @@ function drawWindowRoom(
     active
   ) {
 
+    /*
+       back wall
+    */
+
     ctx.fillStyle =
       warm
-      ? "rgba(100,65,43,.23)"
-      : "rgba(31,67,79,.22)";
+      ? "rgba(98,63,42,.22)"
+      : "rgba(31,67,79,.20)";
 
 
     ctx.fillRect(
-      x + w * .08,
+      x + w * .07,
       y + h * .08,
-      w * .84,
-      h * .77
+      w * .86,
+      h * .78
     );
 
 
+    /*
+       ceiling light
+    */
+
     ctx.fillStyle =
       warm
-      ? "rgba(255,218,159,.70)"
+      ? "rgba(255,219,162,.72)"
       : "rgba(153,231,255,.54)";
 
 
     ctx.fillRect(
-      x + w * .25,
+      x + w * .24,
       y + h * .11,
-      w * .48,
+      w * .50,
       Math.max(
         1,
         2 * s
@@ -2216,17 +2781,18 @@ function drawWindowRoom(
     if (
       noise(
         seed + 70
-      ) > .28
+      ) >
+      .28
     ) {
 
       ctx.fillStyle =
-        "rgba(14,18,20,.85)";
+        "rgba(13,17,18,.86)";
 
 
       ctx.fillRect(
         x + w * .13,
-        y + h * .65,
-        w * .66,
+        y + h * .66,
+        w * .67,
         h * .07
       );
 
@@ -2234,7 +2800,7 @@ function drawWindowRoom(
       ctx.fillRect(
         x + w * .18,
         y + h * .72,
-        w * .055,
+        w * .05,
         h * .17
       );
 
@@ -2242,7 +2808,7 @@ function drawWindowRoom(
       ctx.fillRect(
         x + w * .70,
         y + h * .72,
-        w * .055,
+        w * .05,
         h * .17
       );
     }
@@ -2253,13 +2819,17 @@ function drawWindowRoom(
     */
 
     if (
-      monitor
+      noise(
+        seed + 31
+      ) >
+      .50
     ) {
 
       const cyan =
         noise(
           seed + 91
-        ) > .42;
+        ) >
+        .42;
 
 
       glow(
@@ -2286,41 +2856,6 @@ function drawWindowRoom(
 
 
       noGlow();
-
-
-      ctx.fillStyle =
-        "#080d10";
-
-
-      ctx.fillRect(
-        x + w * .445,
-        y + h * .61,
-        w * .025,
-        h * .07
-      );
-    }
-
-
-    /*
-       chair
-    */
-
-    if (
-      noise(
-        seed + 95
-      ) > .45
-    ) {
-
-      ctx.fillStyle =
-        "rgba(12,16,18,.82)";
-
-
-      ctx.fillRect(
-        x + w * .56,
-        y + h * .62,
-        w * .10,
-        h * .18
-      );
     }
 
 
@@ -2329,7 +2864,10 @@ function drawWindowRoom(
     */
 
     if (
-      person
+      noise(
+        seed + 25
+      ) >
+      .74
     ) {
 
       const px =
@@ -2350,7 +2888,7 @@ function drawWindowRoom(
 
 
       ctx.fillStyle =
-        "rgba(4,7,9,.83)";
+        "rgba(4,7,9,.84)";
 
 
       ctx.beginPath();
@@ -2358,10 +2896,12 @@ function drawWindowRoom(
       ctx.arc(
         px,
         py,
+
         Math.max(
           2,
           4 * s
         ),
+
         0,
         Math.PI * 2
       );
@@ -2370,152 +2910,85 @@ function drawWindowRoom(
 
 
       ctx.fillRect(
-        px - 4 * s,
-        py + 4 * s,
+        px -
+        4 * s,
+
+        py +
+        4 * s,
+
         8 * s,
+
         15 * s
       );
     }
 
 
     /*
-       plant
+       old town curtain
     */
 
     if (
-      plant
+      style.dense &&
+      noise(
+        seed + 401
+      ) >
+      .62
     ) {
 
       ctx.fillStyle =
-        "#273b2d";
+        "rgba(135,82,61,.24)";
 
 
       ctx.fillRect(
-        x + w * .80,
-        y + h * .68,
-        7 * s,
-        13 * s
-      );
-
-
-      ctx.fillStyle =
-        "#3e7252";
-
-
-      for (
-        let i = 0;
-        i < 4;
-        i++
-      ) {
-
-        ctx.beginPath();
-
-        ctx.ellipse(
-          x +
-          w * .82 +
-          (
-            i - 1.5
-          ) *
-          3 * s,
-
-          y +
-          h * .62 +
-          Math.abs(
-            i - 1.5
-          ) *
-          2 * s,
-
-          4 * s,
-          8 * s,
-
-          (
-            i - 1.5
-          ) *
-          .3,
-
-          0,
-          Math.PI * 2
-        );
-
-        ctx.fill();
-      }
-    }
-  }
-
-
-  /*
-     blinds
-  */
-
-  if (
-    blinds
-  ) {
-
-    ctx.strokeStyle =
-      "rgba(190,205,207,.20)";
-
-
-    ctx.lineWidth =
-      Math.max(
-        .5,
-        .7 * s
-      );
-
-
-    for (
-      let yy =
-        y + 5 * s;
-
-      yy <
-        y + h;
-
-      yy += 6 * s
-    ) {
-
-      ctx.beginPath();
-
-      ctx.moveTo(
         x,
-        yy
+        y,
+        w * .19,
+        h
       );
 
-      ctx.lineTo(
-        x + w,
-        yy
-      );
 
-      ctx.stroke();
+      ctx.fillRect(
+        x +
+        w * .81,
+        y,
+        w * .19,
+        h
+      );
     }
   }
 
 
   /*
-     glass reflection
+     reflection
   */
 
   ctx.fillStyle =
-    "rgba(152,232,255,.055)";
+    "rgba(152,232,255,.045)";
 
 
   ctx.beginPath();
 
   ctx.moveTo(
-    x + w * .07,
+    x +
+    w * .07,
     y
   );
 
   ctx.lineTo(
-    x + w * .27,
+    x +
+    w * .27,
     y
   );
 
   ctx.lineTo(
-    x + w * .70,
+    x +
+    w * .70,
     y + h
   );
 
   ctx.lineTo(
-    x + w * .49,
+    x +
+    w * .49,
     y + h
   );
 
@@ -2525,7 +2998,7 @@ function drawWindowRoom(
 
 
   ctx.strokeStyle =
-    "rgba(92,124,132,.47)";
+    "rgba(92,124,132,.44)";
 
 
   ctx.lineWidth =
@@ -2545,7 +3018,7 @@ function drawWindowRoom(
 
 
 /* ==========================================================
-   AIR CONDITIONER
+   AC
 ========================================================== */
 
 function drawAC(
@@ -2610,7 +3083,7 @@ function drawAC(
   ctx.stroke();
 
 
-  const rot =
+  const rotation =
     noise(seed) *
     Math.PI;
 
@@ -2621,8 +3094,8 @@ function drawAC(
     i++
   ) {
 
-    const a =
-      rot +
+    const angle =
+      rotation +
       i *
       Math.PI / 2;
 
@@ -2637,12 +3110,12 @@ function drawAC(
     ctx.lineTo(
       x +
       14 * s +
-      Math.cos(a) *
+      Math.cos(angle) *
       5 * s,
 
       y +
       10.5 * s +
-      Math.sin(a) *
+      Math.sin(angle) *
       5 * s
     );
 
@@ -2661,17 +3134,21 @@ function drawAC(
     ctx.moveTo(
       x +
       28 * s +
-      i * 2 * s,
+      i *
+      2 * s,
 
-      y + 4 * s
+      y +
+      4 * s
     );
 
     ctx.lineTo(
       x +
       28 * s +
-      i * 2 * s,
+      i *
+      2 * s,
 
-      y + 17 * s
+      y +
+      17 * s
     );
 
     ctx.stroke();
@@ -2685,42 +3162,63 @@ function drawAC(
   ctx.beginPath();
 
   ctx.moveTo(
-    x + 5 * s,
+    x +
+    5 * s,
     y + h
   );
 
   ctx.lineTo(
-    x + 5 * s,
-    y + h + 6 * s
+    x +
+    5 * s,
+    y +
+    h +
+    6 * s
   );
 
   ctx.lineTo(
-    x + 16 * s,
-    y + h + 6 * s
+    x +
+    16 * s,
+    y +
+    h +
+    6 * s
   );
 
   ctx.stroke();
 
 
+  /*
+     drain hose
+  */
+
   ctx.strokeStyle =
-    "rgba(120,130,130,.6)";
+    "rgba(130,140,138,.55)";
 
 
   ctx.beginPath();
 
   ctx.moveTo(
-    x + w - 3 * s,
+    x + w,
     y + h * .7
   );
 
   ctx.lineTo(
-    x + w + 6 * s,
-    y + h * .7
+    x +
+    w +
+    8 * s,
+
+    y +
+    h *
+    .7
   );
 
   ctx.lineTo(
-    x + w + 6 * s,
-    y + h + 10 * s
+    x +
+    w +
+    8 * s,
+
+    y +
+    h +
+    12 * s
   );
 
   ctx.stroke();
@@ -2728,7 +3226,7 @@ function drawAC(
 
 
 /* ==========================================================
-   BUILDING PIPES
+   PIPES
 ========================================================== */
 
 function drawPipes(
@@ -2737,96 +3235,96 @@ function drawPipes(
   width,
   height,
   s,
-  seed
+  seed,
+  dense = false
 ) {
 
-  const px =
-    noise(seed) > .5
-    ? x + width * .08
-    : x + width * .92;
-
-
-  ctx.strokeStyle =
-    "rgba(111,121,121,.72)";
-
-
-  ctx.lineWidth =
-    Math.max(
-      1.5,
-      3 * s
-    );
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    px,
-    y - height * .82
-  );
-
-  ctx.lineTo(
-    px,
-    y - 42 * s
-  );
-
-  ctx.lineTo(
-    px + 17 * s,
-    y - 25 * s
-  );
-
-  ctx.stroke();
-
-
-  ctx.strokeStyle =
-    "rgba(75,88,90,.68)";
-
-
-  ctx.lineWidth =
-    Math.max(
-      1,
-      1.6 * s
-    );
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    px + 9 * s,
-    y - height * .62
-  );
-
-  ctx.lineTo(
-    px + 9 * s,
-    y - 70 * s
-  );
-
-  ctx.stroke();
-
-
-  ctx.strokeStyle =
-    "rgba(175,178,172,.52)";
+  const amount =
+    dense
+    ? 3
+    : 2;
 
 
   for (
-    let yy =
-      y - height * .70;
-
-    yy <
-      y - 80 * s;
-
-    yy += 70 * s
+    let i = 0;
+    i < amount;
+    i++
   ) {
+
+    const side =
+      noise(
+        seed +
+        i * 90
+      ) >
+      .5;
+
+
+    const px =
+      side
+      ? (
+          x +
+          width *
+          (
+            .08 +
+            i * .025
+          )
+        )
+      : (
+          x +
+          width *
+          (
+            .92 -
+            i * .025
+          )
+        );
+
+
+    ctx.strokeStyle =
+      i === 0
+      ? "rgba(111,121,121,.72)"
+      : "rgba(82,91,90,.62)";
+
+
+    ctx.lineWidth =
+      Math.max(
+        1,
+        (
+          3 -
+          i * .5
+        ) *
+        s
+      );
+
 
     ctx.beginPath();
 
     ctx.moveTo(
-      px - 5 * s,
-      yy
+      px,
+      y -
+      height *
+      (
+        .82 -
+        i * .08
+      )
     );
 
     ctx.lineTo(
-      px + 6 * s,
-      yy
+      px,
+      y -
+      42 * s
+    );
+
+    ctx.lineTo(
+      px +
+      (
+        side
+        ? 17
+        : -17
+      ) *
+      s,
+
+      y -
+      25 * s
     );
 
     ctx.stroke();
@@ -2875,9 +3373,7 @@ function drawFireEscape(
 
   for (
     let yy = top;
-
     yy < bottom;
-
     yy += 78 * s
   ) {
 
@@ -2902,18 +3398,107 @@ function drawFireEscape(
     );
 
     ctx.stroke();
+  }
+}
+
+
+/* ==========================================================
+   OLD TOWN BALCONIES
+========================================================== */
+
+function drawOldBalconies(
+  x,
+  y,
+  width,
+  height,
+  s,
+  seed
+) {
+
+  const rows =
+    3;
+
+
+  for (
+    let i = 0;
+    i < rows;
+    i++
+  ) {
+
+    if (
+      noise(
+        seed +
+        i * 51
+      ) <
+      .28
+    ) {
+
+      continue;
+    }
+
+
+    const yy =
+      y -
+      height *
+      (
+        .32 +
+        i * .16
+      );
+
+
+    const bx =
+      x +
+      width *
+      (
+        .16 +
+        noise(
+          seed +
+          i * 19
+        ) *
+        .46
+      );
+
+
+    const bw =
+      Math.min(
+        115 * s,
+        width * .25
+      );
+
+
+    ctx.fillStyle =
+      "rgba(33,32,29,.92)";
+
+
+    ctx.fillRect(
+      bx,
+      yy,
+      bw,
+      9 * s
+    );
+
+
+    ctx.strokeStyle =
+      "rgba(104,102,94,.68)";
+
+
+    ctx.lineWidth =
+      Math.max(
+        1,
+        1.4 * s
+      );
 
 
     for (
-      let i = 0;
-      i < 5;
-      i++
+      let k = 0;
+      k < 6;
+      k++
     ) {
 
       const rx =
-        fx -
-        30 * s +
-        i * 14 * s;
+        bx +
+        k *
+        bw / 5;
 
 
       ctx.beginPath();
@@ -2925,37 +3510,83 @@ function drawFireEscape(
 
       ctx.lineTo(
         rx,
-        yy - 16 * s
+        yy -
+        22 * s
       );
 
       ctx.stroke();
     }
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      bx,
+      yy -
+      22 * s
+    );
+
+    ctx.lineTo(
+      bx +
+      bw,
+      yy -
+      22 * s
+    );
+
+    ctx.stroke();
+
+
+    /*
+       hanging clothes
+    */
+
+    if (
+      noise(
+        seed +
+        i * 101
+      ) >
+      .48
+    ) {
+
+      const colors = [
+        "#9b5b4d",
+        "#c1b59b",
+        "#405c68",
+        "#776279"
+      ];
+
+
+      for (
+        let c = 0;
+        c < 3;
+        c++
+      ) {
+
+        ctx.fillStyle =
+          colors[
+            (
+              c +
+              i
+            ) %
+            colors.length
+          ];
+
+
+        ctx.fillRect(
+          bx +
+          15 * s +
+          c *
+          24 * s,
+
+          yy -
+          19 * s,
+
+          14 * s,
+          21 * s
+        );
+      }
+    }
   }
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    fx - 34 * s,
-    top
-  );
-
-  ctx.lineTo(
-    fx - 34 * s,
-    bottom + 20 * s
-  );
-
-  ctx.moveTo(
-    fx + 30 * s,
-    top
-  );
-
-  ctx.lineTo(
-    fx + 30 * s,
-    bottom + 20 * s
-  );
-
-  ctx.stroke();
 }
 
 
@@ -2964,7 +3595,7 @@ function drawFireEscape(
 ========================================================== */
 
 function drawGroundFloor(
-  b,
+  building,
   style,
   x,
   y,
@@ -2977,12 +3608,15 @@ function drawGroundFloor(
 
 
   ctx.fillStyle =
-    "#061014";
+    style.old
+    ? "#100d0b"
+    : "#061014";
 
 
   ctx.fillRect(
     x,
-    y - floorH,
+    y -
+    floorH,
     width,
     floorH
   );
@@ -3014,7 +3648,8 @@ function drawGroundFloor(
 
     const bx =
       x +
-      i * bayW +
+      i *
+      bayW +
       7 * s;
 
 
@@ -3024,49 +3659,41 @@ function drawGroundFloor(
 
 
     const seed =
-      b.x +
-      b.y +
+      building.x +
+      building.y +
       i * 811;
 
 
     const warm =
-      noise(
-        seed
-      ) > .52;
+      style.old ||
+      noise(seed) >
+      .52;
 
 
     ctx.fillStyle =
       warm
-      ? "rgba(192,116,60,.20)"
+      ? "rgba(203,125,64,.22)"
       : "rgba(48,166,190,.18)";
 
 
     ctx.fillRect(
       bx,
-      y - 86 * s,
+      y -
+      86 * s,
       bw,
       64 * s
     );
 
 
-    ctx.fillStyle =
-      warm
-      ? "rgba(92,55,38,.24)"
-      : "rgba(23,65,75,.24)";
-
-
-    ctx.fillRect(
-      bx + bw * .07,
-      y - 80 * s,
-      bw * .86,
-      52 * s
-    );
-
+    /*
+       shelves / store interior
+    */
 
     if (
       noise(
         seed + 9
-      ) > .45
+      ) >
+      .38
     ) {
 
       ctx.fillStyle =
@@ -3074,8 +3701,10 @@ function drawGroundFloor(
 
 
       ctx.fillRect(
-        bx + bw * .13,
-        y - 46 * s,
+        bx +
+        bw * .13,
+        y -
+        46 * s,
         bw * .67,
         6 * s
       );
@@ -3092,16 +3721,19 @@ function drawGroundFloor(
             "#ba8053",
             "#528c9a",
             "#a05265",
-            "#708c55"
-          ][j % 4];
+            "#708c55",
+            "#d3b45b"
+          ][j];
 
 
         ctx.fillRect(
           bx +
           bw * .17 +
-          j * bw * .11,
+          j *
+          bw * .11,
 
-          y - 57 * s,
+          y -
+          57 * s,
 
           4 * s,
           10 * s
@@ -3110,67 +3742,37 @@ function drawGroundFloor(
     }
 
 
-    if (
-      noise(
-        seed + 29
-      ) > .68
-    ) {
-
-      const px =
-        bx +
-        bw * .55;
-
-
-      ctx.fillStyle =
-        "rgba(3,7,8,.80)";
-
-
-      ctx.beginPath();
-
-      ctx.arc(
-        px,
-        y - 58 * s,
-        5 * s,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.fill();
-
-
-      ctx.fillRect(
-        px - 4 * s,
-        y - 53 * s,
-        8 * s,
-        20 * s
-      );
-    }
-
-
     ctx.fillStyle =
-      "rgba(142,230,250,.06)";
+      "rgba(142,230,250,.05)";
 
 
     ctx.beginPath();
 
     ctx.moveTo(
       bx,
-      y - 86 * s
+      y -
+      86 * s
     );
 
     ctx.lineTo(
-      bx + bw * .25,
-      y - 86 * s
+      bx +
+      bw * .25,
+      y -
+      86 * s
     );
 
     ctx.lineTo(
-      bx + bw * .72,
-      y - 22 * s
+      bx +
+      bw * .72,
+      y -
+      22 * s
     );
 
     ctx.lineTo(
-      bx + bw * .48,
-      y - 22 * s
+      bx +
+      bw * .48,
+      y -
+      22 * s
     );
 
     ctx.closePath();
@@ -3179,12 +3781,15 @@ function drawGroundFloor(
 
 
     ctx.strokeStyle =
-      "rgba(83,130,140,.40)";
+      style.old
+      ? "rgba(124,94,72,.48)"
+      : "rgba(83,130,140,.40)";
 
 
     ctx.strokeRect(
       bx,
-      y - 86 * s,
+      y -
+      86 * s,
       bw,
       64 * s
     );
@@ -3192,7 +3797,7 @@ function drawGroundFloor(
 
 
   /*
-     main door
+     entrance
   */
 
   const doorX =
@@ -3201,41 +3806,55 @@ function drawGroundFloor(
 
 
   ctx.fillStyle =
-    "#0d2229";
+    style.old
+    ? "#17120f"
+    : "#0d2229";
 
 
   ctx.fillRect(
-    doorX - 33 * s,
-    y - 88 * s,
+    doorX -
+    33 * s,
+    y -
+    88 * s,
     66 * s,
     88 * s
   );
 
 
   ctx.fillStyle =
-    "rgba(77,182,202,.17)";
+    style.old
+    ? "rgba(225,156,94,.14)"
+    : "rgba(77,182,202,.17)";
 
 
   ctx.fillRect(
-    doorX - 27 * s,
-    y - 81 * s,
+    doorX -
+    27 * s,
+    y -
+    81 * s,
     25 * s,
     73 * s
   );
 
 
   ctx.fillRect(
-    doorX + 2 * s,
-    y - 81 * s,
+    doorX +
+    2 * s,
+    y -
+    81 * s,
     25 * s,
     73 * s
   );
 
 
   ctx.strokeStyle =
-    b.enter
+    building.enter
     ? style.neon
-    : "#46646c";
+    : (
+        style.old
+        ? "#765b47"
+        : "#46646c"
+      );
 
 
   ctx.lineWidth =
@@ -3246,15 +3865,17 @@ function drawGroundFloor(
 
 
   ctx.strokeRect(
-    doorX - 33 * s,
-    y - 88 * s,
+    doorX -
+    33 * s,
+    y -
+    88 * s,
     66 * s,
     88 * s
   );
 
 
   if (
-    b.enter
+    building.enter
   ) {
 
     glow(
@@ -3268,8 +3889,10 @@ function drawGroundFloor(
 
 
     ctx.strokeRect(
-      doorX - 37 * s,
-      y - 92 * s,
+      doorX -
+      37 * s,
+      y -
+      92 * s,
       74 * s,
       92 * s
     );
@@ -3280,7 +3903,7 @@ function drawGroundFloor(
 
 
   /*
-     awning
+     old awning
   */
 
   if (
@@ -3288,16 +3911,24 @@ function drawGroundFloor(
   ) {
 
     ctx.fillStyle =
-      b.visualType ===
-      "dinerBuilding"
-      ? "#7b342b"
-      : "#243f42";
+      building.visualType ===
+      "teaShop"
+      ? "#324b38"
+      : (
+          building.visualType ===
+          "fruitShop"
+          ? "#735333"
+          : "#6d342b"
+        );
 
 
     ctx.fillRect(
-      x + 15 * s,
-      y - 119 * s,
-      width - 30 * s,
+      x +
+      15 * s,
+      y -
+      119 * s,
+      width -
+      30 * s,
       18 * s
     );
 
@@ -3307,177 +3938,71 @@ function drawGroundFloor(
 
 
     ctx.fillRect(
-      x + 15 * s,
-      y - 102 * s,
-      width - 30 * s,
+      x +
+      15 * s,
+      y -
+      102 * s,
+      width -
+      30 * s,
       3 * s
     );
   }
 
 
   /*
-     vending machine
+     fruit display
   */
 
   if (
-    noise(
-      b.x +
-      b.y +
-      999
-    ) > .35
+    building.visualType ===
+    "fruitShop"
   ) {
-
-    const vx =
-      x +
-      width * .08;
-
-
-    ctx.fillStyle =
-      "#b4c0c2";
-
-
-    ctx.fillRect(
-      vx,
-      y - 70 * s,
-      31 * s,
-      70 * s
-    );
-
-
-    glow(
-      "#68e7ff",
-      8 * s
-    );
-
-
-    ctx.fillStyle =
-      "#8cefff";
-
-
-    ctx.fillRect(
-      vx + 4 * s,
-      y - 63 * s,
-      23 * s,
-      27 * s
-    );
-
-
-    noGlow();
-
 
     for (
-      let row = 0;
-      row < 3;
-      row++
+      let i = 0;
+      i < 5;
+      i++
     ) {
 
-      for (
-        let col = 0;
-        col < 3;
-        col++
-      ) {
-
-        ctx.fillStyle =
-          [
-            "#da7659",
-            "#5e9db1",
-            "#d5b058"
-          ][
-            (
-              row +
-              col
-            ) % 3
-          ];
+      ctx.fillStyle =
+        [
+          "#d35b42",
+          "#d7a63e",
+          "#7c9e48",
+          "#db7d3e",
+          "#b74e54"
+        ][i];
 
 
-        ctx.fillRect(
-          vx +
-          6 * s +
-          col * 7 * s,
+      ctx.beginPath();
 
-          y -
-          59 * s +
-          row * 8 * s,
+      ctx.arc(
+        x +
+        40 * s +
+        i *
+        28 * s,
 
-          4 * s,
-          5 * s
-        );
-      }
+        y -
+        18 * s,
+
+        9 * s,
+
+        0,
+        Math.PI * 2
+      );
+
+      ctx.fill();
     }
-  }
-
-
-  /*
-     trash / cardboard
-  */
-
-  ctx.fillStyle =
-    "#263438";
-
-
-  ctx.fillRect(
-    x +
-    width * .90,
-    y - 30 * s,
-    20 * s,
-    30 * s
-  );
-
-
-  ctx.fillStyle =
-    "#415055";
-
-
-  ctx.fillRect(
-    x +
-    width * .90 -
-    2 * s,
-    y - 32 * s,
-    24 * s,
-    5 * s
-  );
-
-
-  if (
-    noise(
-      b.x + 711
-    ) > .50
-  ) {
-
-    ctx.fillStyle =
-      "#74563a";
-
-
-    ctx.fillRect(
-      x +
-      width * .80,
-      y - 20 * s,
-      28 * s,
-      20 * s
-    );
-
-
-    ctx.fillStyle =
-      "#896647";
-
-
-    ctx.fillRect(
-      x +
-      width * .83,
-      y - 34 * s,
-      22 * s,
-      14 * s
-    );
   }
 }
 
 
 /* ==========================================================
-   BUILDING SIGNS
+   SIGNS
 ========================================================== */
 
 function drawBuildingSigns(
-  b,
+  building,
   style,
   x,
   y,
@@ -3494,11 +4019,13 @@ function drawBuildingSigns(
 
 
   const sx =
-    x + 25 * s;
+    x +
+    25 * s;
 
 
   const sy =
-    y - 149 * s;
+    y -
+    149 * s;
 
 
   glow(
@@ -3547,15 +4074,13 @@ function drawBuildingSigns(
 
 
   ctx.fillText(
-    b.sign,
-    sx + 10 * s,
-    sy + 25 * s
+    building.sign,
+    sx +
+    10 * s,
+    sy +
+    25 * s
   );
 
-
-  /*
-     vertical sign
-  */
 
   if (
     style.old
@@ -3581,12 +4106,12 @@ function drawBuildingSigns(
 
     glow(
       style.neon,
-      15 * s
+      12 * s
     );
 
 
     ctx.fillStyle =
-      "rgba(5,9,11,.91)";
+      "rgba(7,7,6,.92)";
 
 
     ctx.fillRect(
@@ -3613,7 +4138,7 @@ function drawBuildingSigns(
 
 
     const chars =
-      b.sign
+      building.sign
         .replace(
           /\s/g,
           ""
@@ -3660,10 +4185,6 @@ function drawBuildingSigns(
   }
 
 
-  /*
-     MEGA LED
-  */
-
   if (
     style.megaScreen
   ) {
@@ -3691,29 +4212,28 @@ function drawBuildingSigns(
       height * .58;
 
 
-    const g =
+    const gradient =
       ctx.createLinearGradient(
         mx,
         my,
-
         mx + mw,
         my + mh
       );
 
 
-    g.addColorStop(
+    gradient.addColorStop(
       0,
       "rgba(38,217,255,.72)"
     );
 
 
-    g.addColorStop(
+    gradient.addColorStop(
       .48,
       "rgba(115,70,255,.56)"
     );
 
 
-    g.addColorStop(
+    gradient.addColorStop(
       1,
       "rgba(237,62,183,.65)"
     );
@@ -3725,7 +4245,8 @@ function drawBuildingSigns(
     );
 
 
-    ctx.fillStyle = g;
+    ctx.fillStyle =
+      gradient;
 
 
     ctx.fillRect(
@@ -3755,8 +4276,10 @@ function drawBuildingSigns(
 
     ctx.fillText(
       "HANGZHOU",
-      mx + mw / 2,
-      my + 45 * s
+      mx +
+      mw / 2,
+      my +
+      45 * s
     );
 
 
@@ -3768,47 +4291,33 @@ function drawBuildingSigns(
 
     ctx.fillText(
       "CITY // 2049",
-      mx + mw / 2,
-      my + 69 * s
+      mx +
+      mw / 2,
+      my +
+      69 * s
     );
-
-
-    ctx.fillStyle =
-      "rgba(0,0,0,.12)";
-
-
-    for (
-      let yy = my;
-      yy < my + mh;
-      yy += 5 * s
-    ) {
-
-      ctx.fillRect(
-        mx,
-        yy,
-        mw,
-        1 * s
-      );
-    }
   }
 }
 
 
 /* ==========================================================
-   ROOFTOP DETAILS
+   ROOF
 ========================================================== */
 
 function drawRoofDetails(
-  b,
+  building,
   x,
   roofY,
   width,
   s,
-  time
+  time,
+  style
 ) {
 
   ctx.fillStyle =
-    "#1c3037";
+    style.old
+    ? "#302c27"
+    : "#1c3037";
 
 
   ctx.fillRect(
@@ -3819,33 +4328,18 @@ function drawRoofDetails(
     44 * s,
 
     width * .19,
+
     44 * s
   );
 
 
-  ctx.fillStyle =
-    "#30474d";
-
-
-  ctx.fillRect(
-    x +
-    width * .13,
-
-    roofY -
-    48 * s,
-
-    width * .19,
-    5 * s
-  );
-
-
-  /*
-     HVAC
-  */
-
   for (
     let i = 0;
-    i < 3;
+    i < (
+      style.dense
+      ? 4
+      : 3
+    );
     i++
   ) {
 
@@ -3853,20 +4347,21 @@ function drawRoofDetails(
       x +
       width *
       (
-        .43 +
-        i * .12
+        .40 +
+        i * .11
       );
 
 
     ctx.fillStyle =
-      "#47565b";
+      style.old
+      ? "#625e55"
+      : "#47565b";
 
 
     ctx.fillRect(
       ax,
       roofY -
       23 * s,
-
       34 * s,
       23 * s
     );
@@ -3879,8 +4374,10 @@ function drawRoofDetails(
     ctx.beginPath();
 
     ctx.arc(
-      ax + 17 * s,
-      roofY - 11 * s,
+      ax +
+      17 * s,
+      roofY -
+      11 * s,
       7 * s,
       0,
       Math.PI * 2
@@ -3889,77 +4386,6 @@ function drawRoofDetails(
     ctx.stroke();
   }
 
-
-  /*
-     tank
-  */
-
-  if (
-    noise(
-      b.x +
-      b.y +
-      500
-    ) > .43
-  ) {
-
-    const tx =
-      x +
-      width * .72;
-
-
-    ctx.fillStyle =
-      "#263d42";
-
-
-    ctx.fillRect(
-      tx,
-      roofY -
-      54 * s,
-      49 * s,
-      54 * s
-    );
-
-
-    ctx.strokeStyle =
-      "#526a6f";
-
-
-    for (
-      let i = 0;
-      i < 4;
-      i++
-    ) {
-
-      ctx.beginPath();
-
-      ctx.moveTo(
-        tx,
-        roofY -
-        (
-          11 +
-          i * 11
-        ) *
-        s
-      );
-
-      ctx.lineTo(
-        tx + 49 * s,
-        roofY -
-        (
-          11 +
-          i * 11
-        ) *
-        s
-      );
-
-      ctx.stroke();
-    }
-  }
-
-
-  /*
-     antenna
-  */
 
   const antennaX =
     x +
@@ -3987,26 +4413,7 @@ function drawRoofDetails(
   ctx.lineTo(
     antennaX,
     roofY -
-    118 * s
-  );
-
-  ctx.stroke();
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    antennaX -
-    25 * s,
-    roofY -
-    67 * s
-  );
-
-  ctx.lineTo(
-    antennaX +
-    25 * s,
-    roofY -
-    67 * s
+    105 * s
   );
 
   ctx.stroke();
@@ -4020,7 +4427,7 @@ function drawRoofDetails(
 
     glow(
       "#ff3b51",
-      13 * s
+      10 * s
     );
 
 
@@ -4033,7 +4440,7 @@ function drawRoofDetails(
     ctx.arc(
       antennaX,
       roofY -
-      120 * s,
+      107 * s,
       4 * s,
       0,
       Math.PI * 2
@@ -4052,28 +4459,28 @@ function drawRoofDetails(
 ========================================================== */
 
 function drawBuilding(
-  b,
+  building,
   time
 ) {
 
   const style =
     getBuildingStyle(
-      b
+      building
     );
 
 
   const p =
     project(
-      b.x +
-      b.w / 2,
+      building.x +
+      building.w / 2,
 
-      b.y +
-      b.h
+      building.y +
+      building.h
     );
 
 
   if (
-    p.y < -1300 ||
+    p.y < -1400 ||
     p.y > H + 1000
   ) {
 
@@ -4086,13 +4493,15 @@ function drawBuilding(
 
 
   const width =
-    b.w * s;
+    building.w *
+    s;
 
 
   const height =
     (
       195 +
-      b.floors * 30
+      building.floors *
+      30
     ) *
     s;
 
@@ -4105,10 +4514,6 @@ function drawBuilding(
   const y =
     p.y;
 
-
-  /*
-     ground shadow
-  */
 
   ctx.fillStyle =
     "rgba(0,0,0,.56)";
@@ -4133,16 +4538,14 @@ function drawBuilding(
   ctx.fill();
 
 
-  /*
-     facade
-  */
-
   const facade =
     ctx.createLinearGradient(
       x,
-      y - height,
+      y -
+      height,
 
-      x + width,
+      x +
+      width,
       y
     );
 
@@ -4161,7 +4564,9 @@ function drawBuilding(
 
   facade.addColorStop(
     1,
-    "#071014"
+    style.old
+    ? "#100d0b"
+    : "#071014"
   );
 
 
@@ -4171,15 +4576,12 @@ function drawBuilding(
 
   ctx.fillRect(
     x,
-    y - height,
+    y -
+    height,
     width,
     height
   );
 
-
-  /*
-     side wall
-  */
 
   const depthX =
     74 * s;
@@ -4190,28 +4592,40 @@ function drawBuilding(
 
 
   ctx.fillStyle =
-    "#061015";
+    style.old
+    ? "#0d0c0a"
+    : "#061015";
 
 
   ctx.beginPath();
 
   ctx.moveTo(
-    x + width,
-    y - height
+    x +
+    width,
+    y -
+    height
   );
 
   ctx.lineTo(
-    x + width + depthX,
-    y - height - depthY
+    x +
+    width +
+    depthX,
+    y -
+    height -
+    depthY
   );
 
   ctx.lineTo(
-    x + width + depthX,
-    y - depthY
+    x +
+    width +
+    depthX,
+    y -
+    depthY
   );
 
   ctx.lineTo(
-    x + width,
+    x +
+    width,
     y
   );
 
@@ -4219,10 +4633,6 @@ function drawBuilding(
 
   ctx.fill();
 
-
-  /*
-     windows
-  */
 
   const upperTop =
     y -
@@ -4243,20 +4653,34 @@ function drawBuilding(
   const cols =
     clamp(
       Math.floor(
-        b.w / 150
+        building.w /
+        (
+          style.dense
+          ? 120
+          : 150
+        )
       ),
       2,
-      9
+      style.dense
+      ? 11
+      : 9
     );
 
 
   const rows =
     clamp(
       Math.floor(
-        b.floors * .52
+        building.floors *
+        (
+          style.dense
+          ? .70
+          : .52
+        )
       ),
       2,
-      11
+      style.dense
+      ? 12
+      : 11
     );
 
 
@@ -4265,11 +4689,21 @@ function drawBuilding(
 
 
   const gapX =
-    11 * s;
+    (
+      style.dense
+      ? 8
+      : 11
+    ) *
+    s;
 
 
   const gapY =
-    11 * s;
+    (
+      style.dense
+      ? 8
+      : 11
+    ) *
+    s;
 
 
   const cellW =
@@ -4332,10 +4766,14 @@ function drawBuilding(
 
 
         const seed =
-          b.x * 1.31 +
-          b.y * .77 +
-          row * 137 +
-          col * 67;
+          building.x *
+          1.31 +
+          building.y *
+          .77 +
+          row *
+          137 +
+          col *
+          67;
 
 
         drawWindowRoom(
@@ -4351,7 +4789,8 @@ function drawBuilding(
 
         if (
           noise(
-            seed + 200
+            seed +
+            200
           ) <
           style.acChance
         ) {
@@ -4375,56 +4814,6 @@ function drawBuilding(
   }
 
 
-  /*
-     facade bands
-  */
-
-  ctx.strokeStyle =
-    style.frame;
-
-
-  ctx.lineWidth =
-    Math.max(
-      1,
-      2 * s
-    );
-
-
-  for (
-    let row = 1;
-    row < rows;
-    row++
-  ) {
-
-    const yy =
-      upperTop +
-      row *
-      (
-        cellH +
-        gapY
-      ) -
-      gapY * .5;
-
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-      x +
-      12 * s,
-      yy
-    );
-
-    ctx.lineTo(
-      x +
-      width -
-      12 * s,
-      yy
-    );
-
-    ctx.stroke();
-  }
-
-
   if (
     style.pipes
   ) {
@@ -4435,14 +4824,17 @@ function drawBuilding(
       width,
       height,
       s,
-      b.x + b.y
+      building.x +
+      building.y,
+      style.dense
     );
   }
 
 
   if (
     style.fireEscape &&
-    width > 180 * s
+    width >
+    180 * s
   ) {
 
     drawFireEscape(
@@ -4455,8 +4847,24 @@ function drawBuilding(
   }
 
 
+  if (
+    style.dense
+  ) {
+
+    drawOldBalconies(
+      x,
+      y,
+      width,
+      height,
+      s,
+      building.x +
+      building.y
+    );
+  }
+
+
   drawGroundFloor(
-    b,
+    building,
     style,
     x,
     y,
@@ -4466,7 +4874,7 @@ function drawBuilding(
 
 
   drawBuildingSigns(
-    b,
+    building,
     style,
     x,
     y,
@@ -4481,29 +4889,41 @@ function drawBuilding(
   */
 
   ctx.fillStyle =
-    "#1a2c32";
+    style.old
+    ? "#302c27"
+    : "#1a2c32";
 
 
   ctx.beginPath();
 
   ctx.moveTo(
     x,
-    y - height
+    y -
+    height
   );
 
   ctx.lineTo(
-    x + width,
-    y - height
+    x +
+    width,
+    y -
+    height
   );
 
   ctx.lineTo(
-    x + width + depthX,
-    y - height - depthY
+    x +
+    width +
+    depthX,
+    y -
+    height -
+    depthY
   );
 
   ctx.lineTo(
-    x + depthX,
-    y - height - depthY
+    x +
+    depthX,
+    y -
+    height -
+    depthY
   );
 
   ctx.closePath();
@@ -4512,77 +4932,23 @@ function drawBuilding(
 
 
   ctx.strokeStyle =
-    "rgba(88,130,140,.38)";
+    style.old
+    ? "rgba(120,104,88,.34)"
+    : "rgba(88,130,140,.38)";
 
   ctx.stroke();
 
 
-  ctx.fillStyle =
-    "#31474e";
-
-
-  ctx.fillRect(
-    x,
-    y - height -
-    5 * s,
-    width,
-    7 * s
-  );
-
-
   drawRoofDetails(
-    b,
+    building,
     x,
-    y - height,
+    y -
+    height,
     width,
     s,
-    time
+    time,
+    style
   );
-
-
-  /*
-     old building electrical box
-  */
-
-  if (
-    style.old
-  ) {
-
-    ctx.fillStyle =
-      "#596467";
-
-
-    ctx.fillRect(
-      x + 18 * s,
-      y - 82 * s,
-      27 * s,
-      34 * s
-    );
-
-
-    ctx.strokeStyle =
-      "#273235";
-
-
-    ctx.strokeRect(
-      x + 18 * s,
-      y - 82 * s,
-      27 * s,
-      34 * s
-    );
-
-
-    ctx.fillStyle =
-      "#d5b04e";
-
-
-    ctx.fillRect(
-      x + 29 * s,
-      y - 67 * s,
-      5 * s,
-      5 * s
-    );
-  }
 }
 
 
@@ -4608,10 +4974,13 @@ function drawTree(
 
   const sway =
     Math.sin(
-      time * .001 +
-      tree.y * .01
+      time *
+      .001 +
+      tree.y *
+      .01
     ) *
-    3 * s;
+    3 *
+    s;
 
 
   ctx.fillStyle =
@@ -4653,8 +5022,10 @@ function drawTree(
   );
 
   ctx.lineTo(
-    p.x + sway,
-    p.y - 78 * s
+    p.x +
+    sway,
+    p.y -
+    78 * s
   );
 
   ctx.stroke();
@@ -4663,10 +5034,15 @@ function drawTree(
   const leaves = [
 
     [-28,-91,29],
+
     [7,-108,36],
+
     [38,-90,27],
+
     [-8,-71,32],
+
     [26,-122,24],
+
     [-35,-115,20]
   ];
 
@@ -4674,11 +5050,11 @@ function drawTree(
   leaves.forEach(
     (
       leaf,
-      i
+      index
     ) => {
 
       ctx.fillStyle =
-        i % 2
+        index % 2
         ? "#153a32"
         : "#21483d";
 
@@ -4687,13 +5063,16 @@ function drawTree(
 
       ctx.arc(
         p.x +
-        leaf[0] * s +
+        leaf[0] *
+        s +
         sway,
 
         p.y +
-        leaf[1] * s,
+        leaf[1] *
+        s,
 
-        leaf[2] * s,
+        leaf[2] *
+        s,
 
         0,
         Math.PI * 2
@@ -4725,7 +5104,11 @@ function drawStreetLight(
 
 
   ctx.strokeStyle =
-    "#384a50";
+    getCurrentMap()
+      .ambience ===
+      "oldtown"
+    ? "#4a4941"
+    : "#384a50";
 
 
   ctx.lineWidth =
@@ -4741,80 +5124,45 @@ function drawStreetLight(
 
   ctx.lineTo(
     p.x,
-    p.y - 118 * s
+    p.y -
+    118 * s
   );
 
   ctx.lineTo(
-    p.x + 31 * s,
-    p.y - 118 * s
+    p.x +
+    31 * s,
+    p.y -
+    118 * s
   );
 
   ctx.stroke();
 
 
-  const cone =
-    ctx.createLinearGradient(
-      p.x,
-      p.y - 112 * s,
-
-      p.x,
-      p.y + 10 * s
-    );
-
-
-  cone.addColorStop(
-    0,
-    "rgba(193,243,255,.10)"
-  );
-
-
-  cone.addColorStop(
-    1,
-    "rgba(193,243,255,0)"
-  );
-
-
-  ctx.fillStyle =
-    cone;
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    p.x + 31 * s,
-    p.y - 112 * s
-  );
-
-  ctx.lineTo(
-    p.x + 72 * s,
-    p.y + 5 * s
-  );
-
-  ctx.lineTo(
-    p.x - 20 * s,
-    p.y + 5 * s
-  );
-
-  ctx.closePath();
-
-  ctx.fill();
+  const color =
+    getCurrentMap()
+      .ambience ===
+      "oldtown"
+    ? "#ffd99c"
+    : "#dff9ff";
 
 
   glow(
-    "#dff9ff",
+    color,
     17 * s
   );
 
 
   ctx.fillStyle =
-    "#effdff";
+    color;
 
 
   ctx.beginPath();
 
   ctx.ellipse(
-    p.x + 34 * s,
-    p.y - 118 * s,
+    p.x +
+    34 * s,
+    p.y -
+    118 * s,
 
     10 * s,
     5 * s,
@@ -4867,7 +5215,8 @@ function drawStreetSign(
 
   ctx.lineTo(
     p.x,
-    p.y - 98 * s
+    p.y -
+    98 * s
   );
 
   ctx.stroke();
@@ -4884,8 +5233,10 @@ function drawStreetSign(
 
 
   ctx.fillRect(
-    p.x - 88 * s,
-    p.y - 125 * s,
+    p.x -
+    88 * s,
+    p.y -
+    125 * s,
     176 * s,
     34 * s
   );
@@ -4900,8 +5251,10 @@ function drawStreetSign(
 
 
   ctx.strokeRect(
-    p.x - 88 * s,
-    p.y - 125 * s,
+    p.x -
+    88 * s,
+    p.y -
+    125 * s,
     176 * s,
     34 * s
   );
@@ -4930,8 +5283,501 @@ function drawStreetSign(
   ctx.fillText(
     sign.text,
     p.x,
-    p.y - 103 * s
+    p.y -
+    103 * s
   );
+}
+
+
+/* ==========================================================
+   CHARACTER PALETTES
+========================================================== */
+
+const CHARACTER_PALETTES = {
+
+  player: {
+
+    coat:"#172a34",
+
+    coat2:"#254b59",
+
+    pants:"#111820",
+
+    shoes:"#d6e4e6",
+
+    accent:"#55eaff",
+
+    hair:"#101318",
+
+    skin:"#c98f70"
+  },
+
+
+  navy: {
+
+    coat:"#25394c",
+
+    coat2:"#354f67",
+
+    pants:"#171e27",
+
+    shoes:"#252b31",
+
+    accent:"#73c7e8",
+
+    hair:"#151619",
+
+    skin:"#c99473"
+  },
+
+
+  charcoal: {
+
+    coat:"#34373c",
+
+    coat2:"#4a4d52",
+
+    pants:"#1b1c20",
+
+    shoes:"#27292d",
+
+    accent:"#d4d8dc",
+
+    hair:"#171416",
+
+    skin:"#d09a7b"
+  },
+
+
+  purple: {
+
+    coat:"#51405f",
+
+    coat2:"#6d5480",
+
+    pants:"#24202a",
+
+    shoes:"#d0ced4",
+
+    accent:"#d777ff",
+
+    hair:"#191419",
+
+    skin:"#ce9678"
+  },
+
+
+  yellow: {
+
+    coat:"#d4a62c",
+
+    coat2:"#f0c54b",
+
+    pants:"#22272a",
+
+    shoes:"#272b2e",
+
+    accent:"#ffe870",
+
+    hair:"#161719",
+
+    skin:"#c88f6d"
+  },
+
+
+  blue: {
+
+    coat:"#2b78a1",
+
+    coat2:"#3c9ac5",
+
+    pants:"#20272d",
+
+    shoes:"#20262a",
+
+    accent:"#73e4ff",
+
+    hair:"#15171a",
+
+    skin:"#ce9471"
+  },
+
+
+  green: {
+
+    coat:"#365d4b",
+
+    coat2:"#4d7963",
+
+    pants:"#222923",
+
+    shoes:"#252b28",
+
+    accent:"#8ed0a5",
+
+    hair:"#171512",
+
+    skin:"#c99472"
+  },
+
+
+  red: {
+
+    coat:"#71403c",
+
+    coat2:"#94534c",
+
+    pants:"#292022",
+
+    shoes:"#302729",
+
+    accent:"#ff897b",
+
+    hair:"#191516",
+
+    skin:"#cf9877"
+  },
+
+
+  brown: {
+
+    coat:"#5c493b",
+
+    coat2:"#77604d",
+
+    pants:"#29241f",
+
+    shoes:"#302923",
+
+    accent:"#d7b283",
+
+    hair:"#191613",
+
+    skin:"#c89370"
+  },
+
+
+  gray: {
+
+    coat:"#53575a",
+
+    coat2:"#6d7275",
+
+    pants:"#282b2d",
+
+    shoes:"#303335",
+
+    accent:"#bfc6c8",
+
+    hair:"#3b3a37",
+
+    skin:"#c68f6f"
+  },
+
+
+  cream: {
+
+    coat:"#b7a98e",
+
+    coat2:"#d0c1a3",
+
+    pants:"#49413b",
+
+    shoes:"#34302c",
+
+    accent:"#efe0bb",
+
+    hair:"#241c19",
+
+    skin:"#d09b79"
+  },
+
+
+  black: {
+
+    coat:"#22252a",
+
+    coat2:"#343941",
+
+    pants:"#14171b",
+
+    shoes:"#25282d",
+
+    accent:"#89939d",
+
+    hair:"#0d0f12",
+
+    skin:"#c78e6e"
+  }
+};
+
+
+/* ==========================================================
+   CHARACTER CONFIG
+========================================================== */
+
+function getCharacterConfig(
+  character,
+  isPlayer
+) {
+
+  const type =
+    isPlayer
+    ? "player"
+    : (
+        character.type ||
+        "street"
+      );
+
+
+  const config = {
+
+    height: 88,
+
+    head: 10,
+
+    shoulder: 25,
+
+    coatLength: 34,
+
+    bag: false,
+
+    backpack: false,
+
+    deliveryBox: false,
+
+    helmet: false,
+
+    apron: false,
+
+    tie: false,
+
+    hood: false,
+
+    umbrella:
+      character.action ===
+      "umbrella",
+
+    phone:
+      character.action ===
+      "phone",
+
+    eating:
+      character.action ===
+      "eat",
+
+    elderly:
+      String(
+        character.gender
+      )
+      .startsWith(
+        "elder"
+      )
+  };
+
+
+  if (
+    type === "player"
+  ) {
+
+    config.height = 94;
+
+    config.shoulder = 27;
+
+    config.coatLength = 38;
+  }
+
+
+  else if (
+    type === "office"
+  ) {
+
+    config.height = 91;
+
+    config.shoulder = 25;
+
+    config.bag = true;
+
+    config.tie = true;
+  }
+
+
+  else if (
+    type === "student"
+  ) {
+
+    config.height = 87;
+
+    config.shoulder = 26;
+
+    config.backpack = true;
+
+    config.hood = true;
+  }
+
+
+  else if (
+    type === "delivery"
+  ) {
+
+    config.height = 90;
+
+    config.shoulder = 28;
+
+    config.deliveryBox = true;
+
+    config.helmet = true;
+  }
+
+
+  else if (
+    type === "shopkeeper"
+  ) {
+
+    config.height = 86;
+
+    config.shoulder = 26;
+
+    config.apron = true;
+  }
+
+
+  else if (
+    type === "security"
+  ) {
+
+    config.height = 92;
+
+    config.shoulder = 29;
+
+    config.cap = true;
+  }
+
+
+  else if (
+    type === "diner"
+  ) {
+
+    config.height = 86;
+
+    config.shoulder = 25;
+  }
+
+
+  if (
+    config.elderly
+  ) {
+
+    config.height -= 5;
+
+    config.shoulder -= 2;
+  }
+
+
+  return config;
+}
+
+
+/* ==========================================================
+   CHARACTER REFLECTION
+========================================================== */
+
+function drawCharacterReflection(
+  p,
+  s,
+  palette,
+  config,
+  alpha = .13
+) {
+
+  ctx.save();
+
+  ctx.globalAlpha =
+    alpha;
+
+
+  ctx.translate(
+    p.x,
+    p.y +
+    7 * s
+  );
+
+
+  ctx.scale(
+    1,
+    -.58
+  );
+
+
+  const gradient =
+    ctx.createLinearGradient(
+      0,
+      0,
+      0,
+      -80 * s
+    );
+
+
+  gradient.addColorStop(
+    0,
+    palette.accent
+  );
+
+
+  gradient.addColorStop(
+    1,
+    "rgba(0,0,0,0)"
+  );
+
+
+  ctx.fillStyle =
+    gradient;
+
+
+  ctx.fillRect(
+    -9 * s,
+    0,
+    18 * s,
+    config.height *
+    s *
+    .72
+  );
+
+
+  ctx.restore();
+}
+
+
+/* ==========================================================
+   CHARACTER SHADOW
+========================================================== */
+
+function drawCharacterShadow(
+  p,
+  s
+) {
+
+  ctx.fillStyle =
+    "rgba(0,0,0,.46)";
+
+
+  ctx.beginPath();
+
+  ctx.ellipse(
+    p.x +
+    2 * s,
+    p.y +
+    3 * s,
+
+    17 * s,
+    6 * s,
+
+    0,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fill();
 }
 
 
@@ -4940,12 +5786,21 @@ function drawStreetSign(
 ========================================================== */
 
 function drawCharacter(
-  x,
-  y,
-  color,
-  isPlayer = false,
-  type = "walk"
+  character,
+  isPlayer = false
 ) {
+
+  const x =
+    isPlayer
+    ? player.x
+    : character.x;
+
+
+  const y =
+    isPlayer
+    ? player.y
+    : character.y;
+
 
   const p =
     project(
@@ -4954,38 +5809,684 @@ function drawCharacter(
     );
 
 
+  if (
+    !isOnScreen(
+      p,
+      150
+    )
+  ) {
+
+    return;
+  }
+
+
   const s =
     p.scale;
 
 
-  let bob = 0;
+  const palette =
+    CHARACTER_PALETTES[
+      isPlayer
+      ? "player"
+      : (
+          character.palette ||
+          "gray"
+        )
+    ] ||
+    CHARACTER_PALETTES.gray;
 
+
+  const config =
+    getCharacterConfig(
+      character,
+      isPlayer
+    );
+
+
+  const moving =
+    isPlayer
+    ? player.moving
+    : (
+        character.action ===
+        "walk"
+      );
+
+
+  const seed =
+    isPlayer
+    ? player.step
+    : (
+        performance.now() *
+        .0017 +
+        x *
+        .013 +
+        y *
+        .007
+      );
+
+
+  const walk =
+    moving
+    ? Math.sin(
+        seed * 1.9
+      )
+    : 0;
+
+
+  const bob =
+    moving
+    ? Math.abs(
+        Math.sin(
+          seed * 1.9
+        )
+      ) *
+      1.7 *
+      s
+    : 0;
+
+
+  const legSwing =
+    walk *
+    7 *
+    s;
+
+
+  const armSwing =
+    walk *
+    6 *
+    s;
+
+
+  /*
+     wet road reflection
+  */
 
   if (
-    isPlayer &&
-    player.moving
+    scene === "city"
   ) {
 
-    bob =
-      Math.sin(
-        player.step
-      ) *
-      2.2 * s;
+    drawCharacterReflection(
+      p,
+      s,
+      palette,
+      config,
+      isPlayer
+      ? .16
+      : .09
+    );
   }
 
 
+  drawCharacterShadow(
+    p,
+    s
+  );
+
+
+  ctx.save();
+
+  ctx.translate(
+    p.x,
+    p.y -
+    bob
+  );
+
+
+  /*
+     elderly posture
+  */
+
+  if (
+    config.elderly
+  ) {
+
+    ctx.rotate(
+      .035
+    );
+  }
+
+
+  /*
+     delivery box / backpack behind body
+  */
+
+  if (
+    config.deliveryBox
+  ) {
+
+    ctx.fillStyle =
+      "#d9b52d";
+
+
+    roundRectPath(
+      -18 * s,
+      -68 * s,
+      36 * s,
+      37 * s,
+      4 * s
+    );
+
+    ctx.fill();
+
+
+    ctx.fillStyle =
+      "#292d2d";
+
+
+    ctx.fillRect(
+      -12 * s,
+      -62 * s,
+      24 * s,
+      5 * s
+    );
+
+
+    ctx.fillStyle =
+      "#fff0a0";
+
+
+    ctx.font =
+      `bold ${
+        6 * s
+      }px sans-serif`;
+
+
+    ctx.textAlign =
+      "center";
+
+
+    ctx.fillText(
+      "外卖",
+      0,
+      -43 * s
+    );
+  }
+
+
+  else if (
+    config.backpack
+  ) {
+
+    ctx.fillStyle =
+      "#252c32";
+
+
+    roundRectPath(
+      -15 * s,
+      -62 * s,
+      30 * s,
+      31 * s,
+      7 * s
+    );
+
+    ctx.fill();
+
+
+    ctx.strokeStyle =
+      "#56616a";
+
+
+    ctx.lineWidth =
+      2 * s;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -11 * s,
+      -58 * s
+    );
+
+    ctx.lineTo(
+      -18 * s,
+      -38 * s
+    );
+
+    ctx.moveTo(
+      11 * s,
+      -58 * s
+    );
+
+    ctx.lineTo(
+      18 * s,
+      -38 * s
+    );
+
+    ctx.stroke();
+  }
+
+
+  /*
+     rear leg
+  */
+
+  ctx.strokeStyle =
+    palette.pants;
+
+
+  ctx.lineWidth =
+    8 * s;
+
+
+  ctx.lineCap =
+    "round";
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    -5 * s,
+    -29 * s
+  );
+
+  ctx.lineTo(
+    -6 * s -
+    legSwing,
+    -7 * s
+  );
+
+  ctx.stroke();
+
+
+  /*
+     rear shoe
+  */
+
+  ctx.strokeStyle =
+    palette.shoes;
+
+
+  ctx.lineWidth =
+    6 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    -7 * s -
+    legSwing,
+    -5 * s
+  );
+
+  ctx.lineTo(
+    -12 * s -
+    legSwing,
+    -2 * s
+  );
+
+  ctx.stroke();
+
+
+  /*
+     rear arm
+  */
+
+  ctx.strokeStyle =
+    palette.coat2;
+
+
+  ctx.lineWidth =
+    7 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    -config.shoulder *
+    .42 *
+    s,
+
+    -58 * s
+  );
+
+  ctx.lineTo(
+    -13 * s +
+    armSwing,
+    -34 * s
+  );
+
+  ctx.stroke();
+
+
+  /*
+     body / jacket
+  */
+
+  const bodyTop =
+    -65 * s;
+
+
+  const bodyBottom =
+    -29 * s;
+
+
+  const shoulder =
+    config.shoulder *
+    s;
+
+
+  const coatGradient =
+    ctx.createLinearGradient(
+      -shoulder,
+      bodyTop,
+      shoulder,
+      bodyBottom
+    );
+
+
+  coatGradient.addColorStop(
+    0,
+    palette.coat2
+  );
+
+
+  coatGradient.addColorStop(
+    .55,
+    palette.coat
+  );
+
+
+  coatGradient.addColorStop(
+    1,
+    "#11171b"
+  );
+
+
   ctx.fillStyle =
-    "rgba(0,0,0,.43)";
+    coatGradient;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    -shoulder / 2,
+    bodyTop
+  );
+
+  ctx.quadraticCurveTo(
+    -shoulder,
+    bodyTop +
+    10 * s,
+
+    -shoulder *
+    .72,
+    bodyBottom
+  );
+
+  ctx.lineTo(
+    shoulder *
+    .72,
+    bodyBottom
+  );
+
+  ctx.quadraticCurveTo(
+    shoulder,
+    bodyTop +
+    10 * s,
+
+    shoulder / 2,
+    bodyTop
+  );
+
+  ctx.closePath();
+
+  ctx.fill();
+
+
+  /*
+     jacket seam
+  */
+
+  ctx.strokeStyle =
+    "rgba(220,235,238,.15)";
+
+
+  ctx.lineWidth =
+    1 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    0,
+    bodyTop +
+    6 * s
+  );
+
+  ctx.lineTo(
+    0,
+    bodyBottom -
+    2 * s
+  );
+
+  ctx.stroke();
+
+
+  /*
+     tie
+  */
+
+  if (
+    config.tie
+  ) {
+
+    ctx.fillStyle =
+      "#11181f";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -2 * s,
+      -61 * s
+    );
+
+    ctx.lineTo(
+      2 * s,
+      -61 * s
+    );
+
+    ctx.lineTo(
+      3 * s,
+      -44 * s
+    );
+
+    ctx.lineTo(
+      0,
+      -39 * s
+    );
+
+    ctx.lineTo(
+      -3 * s,
+      -44 * s
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+  }
+
+
+  /*
+     hoodie
+  */
+
+  if (
+    config.hood
+  ) {
+
+    ctx.strokeStyle =
+      palette.coat2;
+
+
+    ctx.lineWidth =
+      4 * s;
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+      0,
+      -63 * s,
+      11 * s,
+      .15,
+      Math.PI -
+      .15
+    );
+
+    ctx.stroke();
+  }
+
+
+  /*
+     apron
+  */
+
+  if (
+    config.apron
+  ) {
+
+    ctx.fillStyle =
+      "rgba(219,211,190,.72)";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -9 * s,
+      -55 * s
+    );
+
+    ctx.lineTo(
+      9 * s,
+      -55 * s
+    );
+
+    ctx.lineTo(
+      12 * s,
+      -31 * s
+    );
+
+    ctx.lineTo(
+      -12 * s,
+      -31 * s
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.strokeStyle =
+      "#71695c";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -7 * s,
+      -55 * s
+    );
+
+    ctx.lineTo(
+      0,
+      -65 * s
+    );
+
+    ctx.lineTo(
+      7 * s,
+      -55 * s
+    );
+
+    ctx.stroke();
+  }
+
+
+  /*
+     front leg
+  */
+
+  ctx.strokeStyle =
+    palette.pants;
+
+
+  ctx.lineWidth =
+    8 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    5 * s,
+    -29 * s
+  );
+
+  ctx.lineTo(
+    6 * s +
+    legSwing,
+    -7 * s
+  );
+
+  ctx.stroke();
+
+
+  ctx.strokeStyle =
+    palette.shoes;
+
+
+  ctx.lineWidth =
+    6 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    7 * s +
+    legSwing,
+    -5 * s
+  );
+
+  ctx.lineTo(
+    13 * s +
+    legSwing,
+    -2 * s
+  );
+
+  ctx.stroke();
+
+
+  /*
+     neck
+  */
+
+  ctx.fillStyle =
+    palette.skin;
+
+
+  ctx.fillRect(
+    -4 * s,
+    -72 * s,
+    8 * s,
+    9 * s
+  );
+
+
+  /*
+     head
+  */
+
+  ctx.fillStyle =
+    palette.skin;
 
 
   ctx.beginPath();
 
   ctx.ellipse(
-    p.x,
-    p.y + 4 * s,
+    0,
+    -80 * s,
 
-    16 * s,
-    6 * s,
+    10.5 * s,
+    12 * s,
 
     0,
     0,
@@ -4996,62 +6497,23 @@ function drawCharacter(
 
 
   /*
-     legs
+     ear
   */
-
-  ctx.fillStyle =
-    "#11171b";
-
-
-  ctx.fillRect(
-    p.x - 7 * s,
-    p.y - 18 * s + bob,
-    5 * s,
-    20 * s
-  );
-
-
-  ctx.fillRect(
-    p.x + 2 * s,
-    p.y - 18 * s + bob,
-    5 * s,
-    20 * s
-  );
-
-
-  /*
-     body
-  */
-
-  ctx.fillStyle =
-    color;
-
-
-  roundRectPath(
-    p.x - 12 * s,
-    p.y - 49 * s + bob,
-    24 * s,
-    33 * s,
-    5 * s
-  );
-
-  ctx.fill();
-
-
-  /*
-     face
-  */
-
-  ctx.fillStyle =
-    "#c99778";
-
 
   ctx.beginPath();
 
   ctx.arc(
-    p.x,
-    p.y - 60 * s + bob,
+    -10 * s,
+    -80 * s,
+    2.2 * s,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.arc(
     10 * s,
+    -80 * s,
+    2.2 * s,
     0,
     Math.PI * 2
   );
@@ -5064,66 +6526,99 @@ function drawCharacter(
   */
 
   ctx.fillStyle =
-    "#131619";
+    palette.hair;
 
 
   ctx.beginPath();
 
-  ctx.arc(
-    p.x,
-    p.y - 64 * s + bob,
-    10 * s,
-    Math.PI,
-    Math.PI * 2
+  ctx.moveTo(
+    -10 * s,
+    -82 * s
   );
+
+  ctx.quadraticCurveTo(
+    -8 * s,
+    -95 * s,
+    2 * s,
+    -94 * s
+  );
+
+  ctx.quadraticCurveTo(
+    11 * s,
+    -91 * s,
+    10 * s,
+    -80 * s
+  );
+
+  ctx.lineTo(
+    6 * s,
+    -85 * s
+  );
+
+  ctx.lineTo(
+    3 * s,
+    -82 * s
+  );
+
+  ctx.lineTo(
+    -1 * s,
+    -87 * s
+  );
+
+  ctx.lineTo(
+    -5 * s,
+    -82 * s
+  );
+
+  ctx.closePath();
 
   ctx.fill();
 
 
   /*
-     NPC variations
+     elderly gray hair
   */
 
   if (
-    type === "phone"
-  ) {
-
-    glow(
-      "#64dfff",
-      5 * s
-    );
-
-
-    ctx.fillStyle =
-      "#74e9ff";
-
-
-    ctx.fillRect(
-      p.x + 10 * s,
-      p.y - 42 * s,
-      5 * s,
-      8 * s
-    );
-
-
-    noGlow();
-  }
-
-
-  if (
-    type === "umbrella"
+    config.elderly
   ) {
 
     ctx.fillStyle =
-      "#293841";
+      "#77736c";
 
 
     ctx.beginPath();
 
     ctx.arc(
-      p.x,
-      p.y - 84 * s,
-      29 * s,
+      0,
+      -85 * s,
+      9 * s,
+      Math.PI,
+      Math.PI * 2
+    );
+
+    ctx.fill();
+  }
+
+
+  /*
+     helmet
+  */
+
+  if (
+    config.helmet
+  ) {
+
+    ctx.fillStyle =
+      palette.coat2;
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+      0,
+      -85 * s,
+      12 * s,
       Math.PI,
       Math.PI * 2
     );
@@ -5132,80 +6627,361 @@ function drawCharacter(
 
 
     ctx.strokeStyle =
-      "#65747a";
+      "#22292d";
 
 
     ctx.lineWidth =
-      1.5 * s;
+      2 * s;
 
 
     ctx.beginPath();
 
     ctx.moveTo(
-      p.x,
-      p.y - 84 * s
+      8 * s,
+      -84 * s
     );
 
     ctx.lineTo(
-      p.x,
-      p.y - 39 * s
+      9 * s,
+      -74 * s
     );
 
     ctx.stroke();
   }
 
 
+  /*
+     security cap
+  */
+
   if (
-    type === "eat"
+    config.cap
   ) {
 
     ctx.fillStyle =
-      "#e5d5bd";
+      "#182938";
 
+
+    ctx.fillRect(
+      -11 * s,
+      -92 * s,
+      22 * s,
+      6 * s
+    );
+
+
+    ctx.fillRect(
+      -4 * s,
+      -86 * s,
+      16 * s,
+      3 * s
+    );
+  }
+
+
+  /*
+     front arm
+  */
+
+  ctx.strokeStyle =
+    palette.coat;
+
+
+  ctx.lineWidth =
+    7 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    config.shoulder *
+    .42 *
+    s,
+
+    -58 * s
+  );
+
+
+  if (
+    config.phone
+  ) {
+
+    ctx.lineTo(
+      12 * s,
+      -45 * s
+    );
+
+    ctx.lineTo(
+      9 * s,
+      -60 * s
+    );
+  }
+
+  else if (
+    config.eating
+  ) {
+
+    ctx.lineTo(
+      13 * s,
+      -45 * s
+    );
+
+    ctx.lineTo(
+      7 * s,
+      -69 * s
+    );
+  }
+
+  else {
+
+    ctx.lineTo(
+      13 * s -
+      armSwing,
+      -34 * s
+    );
+  }
+
+
+  ctx.stroke();
+
+
+  /*
+     hand
+  */
+
+  ctx.fillStyle =
+    palette.skin;
+
+
+  if (
+    config.phone
+  ) {
 
     ctx.beginPath();
 
     ctx.arc(
-      p.x + 13 * s,
-      p.y - 36 * s,
-      4 * s,
+      9 * s,
+      -60 * s,
+      3 * s,
       0,
       Math.PI * 2
+    );
+
+    ctx.fill();
+
+
+    glow(
+      "#63e8ff",
+      5 * s
+    );
+
+
+    ctx.fillStyle =
+      "#77edff";
+
+
+    ctx.fillRect(
+      9 * s,
+      -68 * s,
+      5 * s,
+      9 * s
+    );
+
+
+    noGlow();
+  }
+
+
+  /*
+     shoulder bag
+  */
+
+  if (
+    config.bag
+  ) {
+
+    ctx.strokeStyle =
+      "#15191c";
+
+
+    ctx.lineWidth =
+      3 * s;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -8 * s,
+      -61 * s
+    );
+
+    ctx.lineTo(
+      17 * s,
+      -31 * s
+    );
+
+    ctx.stroke();
+
+
+    ctx.fillStyle =
+      "#252a2d";
+
+
+    roundRectPath(
+      12 * s,
+      -38 * s,
+      18 * s,
+      20 * s,
+      3 * s
     );
 
     ctx.fill();
   }
 
 
+  /*
+     umbrella
+  */
+
   if (
-    isPlayer
+    config.umbrella
   ) {
 
-    glow(
-      "#55eaff",
-      8 * s
+    ctx.strokeStyle =
+      "#78878b";
+
+
+    ctx.lineWidth =
+      2 * s;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      15 * s,
+      -37 * s
     );
+
+    ctx.lineTo(
+      15 * s,
+      -111 * s
+    );
+
+    ctx.stroke();
 
 
     ctx.fillStyle =
-      "#55eaff";
+      "rgba(58,72,82,.82)";
 
 
-    ctx.fillRect(
-      p.x - 12 * s,
-      p.y - 47 * s + bob,
-      24 * s,
-      3 * s
+    ctx.beginPath();
+
+    ctx.arc(
+      15 * s,
+      -111 * s,
+
+      34 * s,
+
+      Math.PI,
+      Math.PI * 2
     );
 
+    ctx.fill();
 
-    noGlow();
+
+    ctx.strokeStyle =
+      "rgba(130,155,165,.62)";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      -19 * s,
+      -111 * s
+    );
+
+    ctx.lineTo(
+      15 * s,
+      -111 * s
+    );
+
+    ctx.lineTo(
+      49 * s,
+      -111 * s
+    );
+
+    ctx.stroke();
   }
+
+
+  /*
+     neon rim light
+  */
+
+  const rimColor =
+    getCurrentMap()
+      .ambience ===
+      "oldtown"
+    ? "#ff9b62"
+    : palette.accent;
+
+
+  glow(
+    rimColor,
+    isPlayer
+    ? 9 * s
+    : 4 * s
+  );
+
+
+  ctx.strokeStyle =
+    rimColor;
+
+
+  ctx.globalAlpha =
+    isPlayer
+    ? .72
+    : .28;
+
+
+  ctx.lineWidth =
+    isPlayer
+    ? 1.8 * s
+    : 1 * s;
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    -shoulder / 2,
+    bodyTop +
+    3 * s
+  );
+
+  ctx.quadraticCurveTo(
+    -shoulder,
+    bodyTop +
+    12 * s,
+
+    -shoulder *
+    .72,
+    bodyBottom
+  );
+
+  ctx.stroke();
+
+
+  ctx.globalAlpha = 1;
+
+  noGlow();
+
+
+  ctx.restore();
 }
 
 
 /* ==========================================================
-   PROP - BIKE
+   PROP DRAWING
 ========================================================== */
 
 function drawBike(
@@ -5240,7 +7016,8 @@ function drawBike(
   ctx.beginPath();
 
   ctx.arc(
-    p.x - 10 * s,
+    p.x -
+    10 * s,
     p.y,
     8 * s,
     0,
@@ -5248,7 +7025,8 @@ function drawBike(
   );
 
   ctx.arc(
-    p.x + 10 * s,
+    p.x +
+    10 * s,
     p.y,
     8 * s,
     0,
@@ -5256,54 +7034,34 @@ function drawBike(
   );
 
   ctx.moveTo(
-    p.x - 10 * s,
+    p.x -
+    10 * s,
     p.y
   );
 
   ctx.lineTo(
     p.x,
-    p.y - 13 * s
+    p.y -
+    13 * s
   );
 
   ctx.lineTo(
-    p.x + 10 * s,
+    p.x +
+    10 * s,
     p.y
   );
 
   ctx.lineTo(
-    p.x - 2 * s,
+    p.x -
+    2 * s,
     p.y
   );
 
   ctx.closePath();
 
   ctx.stroke();
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    p.x,
-    p.y - 13 * s
-  );
-
-  ctx.lineTo(
-    p.x + 5 * s,
-    p.y - 20 * s
-  );
-
-  ctx.lineTo(
-    p.x + 11 * s,
-    p.y - 20 * s
-  );
-
-  ctx.stroke();
 }
 
-
-/* ==========================================================
-   PROP - SCOOTER
-========================================================== */
 
 function drawScooter(
   prop
@@ -5328,9 +7086,12 @@ function drawScooter(
 
   ctx.ellipse(
     p.x,
-    p.y + 2 * s,
+    p.y +
+    2 * s,
+
     27 * s,
     7 * s,
+
     0,
     0,
     Math.PI * 2
@@ -5344,8 +7105,10 @@ function drawScooter(
 
 
   ctx.fillRect(
-    p.x - 17 * s,
-    p.y - 20 * s,
+    p.x -
+    17 * s,
+    p.y -
+    20 * s,
     32 * s,
     16 * s
   );
@@ -5356,8 +7119,10 @@ function drawScooter(
 
 
   ctx.fillRect(
-    p.x + 8 * s,
-    p.y - 33 * s,
+    p.x +
+    8 * s,
+    p.y -
+    33 * s,
     11 * s,
     23 * s
   );
@@ -5370,7 +7135,8 @@ function drawScooter(
   ctx.beginPath();
 
   ctx.arc(
-    p.x - 14 * s,
+    p.x -
+    14 * s,
     p.y,
     7 * s,
     0,
@@ -5378,7 +7144,8 @@ function drawScooter(
   );
 
   ctx.arc(
-    p.x + 15 * s,
+    p.x +
+    15 * s,
     p.y,
     7 * s,
     0,
@@ -5386,33 +7153,8 @@ function drawScooter(
   );
 
   ctx.fill();
-
-
-  glow(
-    "#ff5a58",
-    6 * s
-  );
-
-
-  ctx.fillStyle =
-    "#ff625d";
-
-
-  ctx.fillRect(
-    p.x - 20 * s,
-    p.y - 16 * s,
-    4 * s,
-    5 * s
-  );
-
-
-  noGlow();
 }
 
-
-/* ==========================================================
-   PROP - VENDING MACHINE
-========================================================== */
 
 function drawVending(
   prop
@@ -5442,8 +7184,10 @@ function drawVending(
 
 
   ctx.fillRect(
-    p.x - w / 2,
-    p.y - h,
+    p.x -
+    w / 2,
+    p.y -
+    h,
     w,
     h
   );
@@ -5462,78 +7206,20 @@ function drawVending(
   ctx.fillRect(
     p.x -
     w * .36,
+
     p.y -
     h +
     8 * s,
 
     w * .72,
+
     31 * s
   );
 
 
   noGlow();
-
-
-  for (
-    let row = 0;
-    row < 3;
-    row++
-  ) {
-
-    for (
-      let col = 0;
-      col < 3;
-      col++
-    ) {
-
-      ctx.fillStyle =
-        [
-          "#d65d55",
-          "#55a2b6",
-          "#d6aa4c"
-        ][
-          (
-            row +
-            col
-          ) % 3
-        ];
-
-
-      ctx.fillRect(
-        p.x -
-        10 * s +
-        col * 8 * s,
-
-        p.y -
-        h +
-        12 * s +
-        row * 8 * s,
-
-        4 * s,
-        5 * s
-      );
-    }
-  }
-
-
-  ctx.fillStyle =
-    "#273235";
-
-
-  ctx.fillRect(
-    p.x -
-    9 * s,
-    p.y -
-    21 * s,
-    18 * s,
-    8 * s
-  );
 }
 
-
-/* ==========================================================
-   PROP - TRASH
-========================================================== */
 
 function drawTrash(
   prop
@@ -5576,29 +7262,8 @@ function drawTrash(
     26 * s,
     5 * s
   );
-
-
-  ctx.fillStyle =
-    "#111718";
-
-
-  ctx.beginPath();
-
-  ctx.arc(
-    p.x + 17 * s,
-    p.y - 6 * s,
-    9 * s,
-    0,
-    Math.PI * 2
-  );
-
-  ctx.fill();
 }
 
-
-/* ==========================================================
-   PROP - BOXES
-========================================================== */
 
 function drawBoxes(
   prop
@@ -5634,47 +7299,15 @@ function drawBoxes(
 
 
   ctx.fillRect(
-    p.x + 2 * s,
+    p.x +
+    2 * s,
     p.y -
     34 * s,
     24 * s,
     34 * s
   );
-
-
-  ctx.strokeStyle =
-    "#4e3827";
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    p.x - 6 * s,
-    p.y - 22 * s
-  );
-
-  ctx.lineTo(
-    p.x - 6 * s,
-    p.y
-  );
-
-  ctx.moveTo(
-    p.x + 14 * s,
-    p.y - 34 * s
-  );
-
-  ctx.lineTo(
-    p.x + 14 * s,
-    p.y
-  );
-
-  ctx.stroke();
 }
 
-
-/* ==========================================================
-   PROP - PLANT
-========================================================== */
 
 function drawPlant(
   prop
@@ -5698,22 +7331,28 @@ function drawPlant(
   ctx.beginPath();
 
   ctx.moveTo(
-    p.x - 9 * s,
-    p.y - 16 * s
+    p.x -
+    9 * s,
+    p.y -
+    16 * s
   );
 
   ctx.lineTo(
-    p.x + 9 * s,
-    p.y - 16 * s
+    p.x +
+    9 * s,
+    p.y -
+    16 * s
   );
 
   ctx.lineTo(
-    p.x + 6 * s,
+    p.x +
+    6 * s,
     p.y
   );
 
   ctx.lineTo(
-    p.x - 6 * s,
+    p.x -
+    6 * s,
     p.y
   );
 
@@ -5732,7 +7371,7 @@ function drawPlant(
     i++
   ) {
 
-    const a =
+    const angle =
       -1.8 +
       i * .65;
 
@@ -5741,18 +7380,18 @@ function drawPlant(
 
     ctx.ellipse(
       p.x +
-      Math.cos(a) *
+      Math.cos(angle) *
       8 * s,
 
       p.y -
       24 * s +
-      Math.sin(a) *
+      Math.sin(angle) *
       7 * s,
 
       6 * s,
       13 * s,
 
-      a,
+      angle,
       0,
       Math.PI * 2
     );
@@ -5761,10 +7400,6 @@ function drawPlant(
   }
 }
 
-
-/* ==========================================================
-   PROP - BENCH
-========================================================== */
 
 function drawBench(
   prop
@@ -5786,16 +7421,20 @@ function drawBench(
 
 
   ctx.fillRect(
-    p.x - 35 * s,
-    p.y - 21 * s,
+    p.x -
+    35 * s,
+    p.y -
+    21 * s,
     70 * s,
     8 * s
   );
 
 
   ctx.fillRect(
-    p.x - 35 * s,
-    p.y - 39 * s,
+    p.x -
+    35 * s,
+    p.y -
+    39 * s,
     70 * s,
     8 * s
   );
@@ -5812,32 +7451,34 @@ function drawBench(
   ctx.beginPath();
 
   ctx.moveTo(
-    p.x - 27 * s,
-    p.y - 14 * s
+    p.x -
+    27 * s,
+    p.y -
+    14 * s
   );
 
   ctx.lineTo(
-    p.x - 27 * s,
+    p.x -
+    27 * s,
     p.y
   );
 
   ctx.moveTo(
-    p.x + 27 * s,
-    p.y - 14 * s
+    p.x +
+    27 * s,
+    p.y -
+    14 * s
   );
 
   ctx.lineTo(
-    p.x + 27 * s,
+    p.x +
+    27 * s,
     p.y
   );
 
   ctx.stroke();
 }
 
-
-/* ==========================================================
-   PROP - CONSTRUCTION
-========================================================== */
 
 function drawBarrier(
   prop
@@ -5859,8 +7500,10 @@ function drawBarrier(
 
 
   ctx.fillRect(
-    p.x - 32 * s,
-    p.y - 26 * s,
+    p.x -
+    32 * s,
+    p.y -
+    26 * s,
     64 * s,
     13 * s
   );
@@ -5881,7 +7524,8 @@ function drawBarrier(
     ctx.translate(
       p.x -
       27 * s +
-      i * 18 * s,
+      i *
+      18 * s,
 
       p.y -
       20 * s
@@ -5900,39 +7544,6 @@ function drawBarrier(
 
     ctx.restore();
   }
-
-
-  ctx.strokeStyle =
-    "#777f80";
-
-
-  ctx.lineWidth =
-    3 * s;
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    p.x - 24 * s,
-    p.y - 13 * s
-  );
-
-  ctx.lineTo(
-    p.x - 24 * s,
-    p.y
-  );
-
-  ctx.moveTo(
-    p.x + 24 * s,
-    p.y - 13 * s
-  );
-
-  ctx.lineTo(
-    p.x + 24 * s,
-    p.y
-  );
-
-  ctx.stroke();
 }
 
 
@@ -5959,16 +7570,19 @@ function drawCone(
 
   ctx.moveTo(
     p.x,
-    p.y - 28 * s
+    p.y -
+    28 * s
   );
 
   ctx.lineTo(
-    p.x - 11 * s,
+    p.x -
+    11 * s,
     p.y
   );
 
   ctx.lineTo(
-    p.x + 11 * s,
+    p.x +
+    11 * s,
     p.y
   );
 
@@ -5982,29 +7596,15 @@ function drawCone(
 
 
   ctx.fillRect(
-    p.x - 7 * s,
-    p.y - 12 * s,
+    p.x -
+    7 * s,
+    p.y -
+    12 * s,
     14 * s,
-    4 * s
-  );
-
-
-  ctx.fillStyle =
-    "#292d2e";
-
-
-  ctx.fillRect(
-    p.x - 14 * s,
-    p.y,
-    28 * s,
     4 * s
   );
 }
 
-
-/* ==========================================================
-   PROP - UTILITY BOX
-========================================================== */
 
 function drawUtility(
   prop
@@ -6026,8 +7626,10 @@ function drawUtility(
 
 
   ctx.fillRect(
-    p.x - 17 * s,
-    p.y - 48 * s,
+    p.x -
+    17 * s,
+    p.y -
+    48 * s,
     34 * s,
     48 * s
   );
@@ -6038,8 +7640,10 @@ function drawUtility(
 
 
   ctx.strokeRect(
-    p.x - 17 * s,
-    p.y - 48 * s,
+    p.x -
+    17 * s,
+    p.y -
+    48 * s,
     34 * s,
     48 * s
   );
@@ -6053,17 +7657,22 @@ function drawUtility(
 
   ctx.moveTo(
     p.x,
-    p.y - 38 * s
+    p.y -
+    38 * s
   );
 
   ctx.lineTo(
-    p.x - 5 * s,
-    p.y - 27 * s
+    p.x -
+    5 * s,
+    p.y -
+    27 * s
   );
 
   ctx.lineTo(
-    p.x + 5 * s,
-    p.y - 27 * s
+    p.x +
+    5 * s,
+    p.y -
+    27 * s
   );
 
   ctx.closePath();
@@ -6072,11 +7681,7 @@ function drawUtility(
 }
 
 
-/* ==========================================================
-   PROP - UMBRELLA
-========================================================== */
-
-function drawUmbrella(
+function drawUmbrellaProp(
   prop
 ) {
 
@@ -6108,7 +7713,8 @@ function drawUmbrella(
 
   ctx.lineTo(
     p.x,
-    p.y - 39 * s
+    p.y -
+    39 * s
   );
 
   ctx.stroke();
@@ -6122,7 +7728,8 @@ function drawUmbrella(
 
   ctx.arc(
     p.x,
-    p.y - 39 * s,
+    p.y -
+    39 * s,
     23 * s,
     Math.PI,
     Math.PI * 2
@@ -6131,10 +7738,6 @@ function drawUmbrella(
   ctx.fill();
 }
 
-
-/* ==========================================================
-   PROP - DRAIN
-========================================================== */
 
 function drawDrain(
   prop
@@ -6156,8 +7759,10 @@ function drawDrain(
 
 
   ctx.fillRect(
-    p.x - 25 * s,
-    p.y - 5 * s,
+    p.x -
+    25 * s,
+    p.y -
+    5 * s,
     50 * s,
     10 * s
   );
@@ -6182,25 +7787,25 @@ function drawDrain(
     ctx.moveTo(
       p.x -
       20 * s +
-      i * 6 * s,
-      p.y - 4 * s
+      i *
+      6 * s,
+      p.y -
+      4 * s
     );
 
     ctx.lineTo(
       p.x -
       20 * s +
-      i * 6 * s,
-      p.y + 4 * s
+      i *
+      6 * s,
+      p.y +
+      4 * s
     );
 
     ctx.stroke();
   }
 }
 
-
-/* ==========================================================
-   PROP - AC STACK
-========================================================== */
 
 function drawACStack(
   prop
@@ -6225,7 +7830,8 @@ function drawACStack(
 
     const yy =
       p.y -
-      i * 31 * s;
+      i *
+      31 * s;
 
 
     ctx.fillStyle =
@@ -6233,8 +7839,10 @@ function drawACStack(
 
 
     ctx.fillRect(
-      p.x - 22 * s,
-      yy - 25 * s,
+      p.x -
+      22 * s,
+      yy -
+      25 * s,
       44 * s,
       25 * s
     );
@@ -6247,73 +7855,19 @@ function drawACStack(
     ctx.beginPath();
 
     ctx.arc(
-      p.x - 7 * s,
-      yy - 13 * s,
+      p.x -
+      7 * s,
+      yy -
+      13 * s,
       8 * s,
       0,
       Math.PI * 2
     );
 
     ctx.stroke();
-
-
-    for (
-      let k = 0;
-      k < 4;
-      k++
-    ) {
-
-      ctx.beginPath();
-
-      ctx.moveTo(
-        p.x + 6 * s +
-        k * 3 * s,
-        yy - 21 * s
-      );
-
-      ctx.lineTo(
-        p.x + 6 * s +
-        k * 3 * s,
-        yy - 5 * s
-      );
-
-      ctx.stroke();
-    }
   }
-
-
-  ctx.strokeStyle =
-    "#697476";
-
-
-  ctx.lineWidth =
-    2 * s;
-
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-    p.x + 22 * s,
-    p.y - 43 * s
-  );
-
-  ctx.lineTo(
-    p.x + 34 * s,
-    p.y - 43 * s
-  );
-
-  ctx.lineTo(
-    p.x + 34 * s,
-    p.y
-  );
-
-  ctx.stroke();
 }
 
-
-/* ==========================================================
-   PROP ROUTER
-========================================================== */
 
 function drawProp(
   prop,
@@ -6325,89 +7879,127 @@ function drawProp(
   ) {
 
     case "bike":
+
       drawBike(
         prop,
         index
       );
+
       break;
 
+
     case "scooter":
+
       drawScooter(
         prop
       );
+
       break;
 
+
     case "vending":
+
       drawVending(
         prop
       );
+
       break;
 
+
     case "trash":
+
       drawTrash(
         prop
       );
+
       break;
 
+
     case "boxes":
+
       drawBoxes(
         prop
       );
+
       break;
 
+
     case "plant":
+
       drawPlant(
         prop
       );
+
       break;
 
+
     case "bench":
+
       drawBench(
         prop
       );
+
       break;
 
+
     case "barrier":
+
       drawBarrier(
         prop
       );
+
       break;
 
+
     case "cone":
+
       drawCone(
         prop
       );
+
       break;
 
+
     case "utility":
+
       drawUtility(
         prop
       );
+
       break;
+
 
     case "umbrella":
-      drawUmbrella(
+
+      drawUmbrellaProp(
         prop
       );
+
       break;
 
+
     case "drain":
+
       drawDrain(
         prop
       );
+
       break;
 
+
     case "acstack":
+
       drawACStack(
         prop
       );
+
       break;
   }
 }
 
 
 /* ==========================================================
-   FOOD STALL
+   STALL
 ========================================================== */
 
 function drawStall(
@@ -6426,10 +8018,6 @@ function drawStall(
     p.scale;
 
 
-  /*
-     shadow
-  */
-
   ctx.fillStyle =
     "rgba(0,0,0,.40)";
 
@@ -6438,7 +8026,8 @@ function drawStall(
 
   ctx.ellipse(
     p.x,
-    p.y + 5 * s,
+    p.y +
+    5 * s,
     50 * s,
     13 * s,
     0,
@@ -6449,37 +8038,19 @@ function drawStall(
   ctx.fill();
 
 
-  /*
-     cart
-  */
-
   ctx.fillStyle =
     "#42332a";
 
 
   ctx.fillRect(
-    p.x - 43 * s,
-    p.y - 48 * s,
+    p.x -
+    43 * s,
+    p.y -
+    48 * s,
     86 * s,
     48 * s
   );
 
-
-  ctx.fillStyle =
-    "#6b5140";
-
-
-  ctx.fillRect(
-    p.x - 48 * s,
-    p.y - 53 * s,
-    96 * s,
-    8 * s
-  );
-
-
-  /*
-     canopy
-  */
 
   ctx.strokeStyle =
     "#545e60";
@@ -6492,23 +8063,31 @@ function drawStall(
   ctx.beginPath();
 
   ctx.moveTo(
-    p.x - 38 * s,
-    p.y - 48 * s
+    p.x -
+    38 * s,
+    p.y -
+    48 * s
   );
 
   ctx.lineTo(
-    p.x - 38 * s,
-    p.y - 112 * s
+    p.x -
+    38 * s,
+    p.y -
+    112 * s
   );
 
   ctx.moveTo(
-    p.x + 38 * s,
-    p.y - 48 * s
+    p.x +
+    38 * s,
+    p.y -
+    48 * s
   );
 
   ctx.lineTo(
-    p.x + 38 * s,
-    p.y - 112 * s
+    p.x +
+    38 * s,
+    p.y -
+    112 * s
   );
 
   ctx.stroke();
@@ -6521,33 +8100,37 @@ function drawStall(
   ctx.beginPath();
 
   ctx.moveTo(
-    p.x - 48 * s,
-    p.y - 112 * s
+    p.x -
+    48 * s,
+    p.y -
+    112 * s
   );
 
   ctx.lineTo(
-    p.x + 48 * s,
-    p.y - 112 * s
+    p.x +
+    48 * s,
+    p.y -
+    112 * s
   );
 
   ctx.lineTo(
-    p.x + 40 * s,
-    p.y - 93 * s
+    p.x +
+    40 * s,
+    p.y -
+    93 * s
   );
 
   ctx.lineTo(
-    p.x - 40 * s,
-    p.y - 93 * s
+    p.x -
+    40 * s,
+    p.y -
+    93 * s
   );
 
   ctx.closePath();
 
   ctx.fill();
 
-
-  /*
-     light
-  */
 
   glow(
     stall.color,
@@ -6560,8 +8143,10 @@ function drawStall(
 
 
   ctx.fillRect(
-    p.x - 29 * s,
-    p.y - 91 * s,
+    p.x -
+    29 * s,
+    p.y -
+    91 * s,
     58 * s,
     20 * s
   );
@@ -6590,40 +8175,9 @@ function drawStall(
   ctx.fillText(
     stall.name,
     p.x,
-    p.y - 77 * s
+    p.y -
+    77 * s
   );
-
-
-  /*
-     pots / food
-  */
-
-  ctx.fillStyle =
-    "#252a2a";
-
-
-  for (
-    let i = 0;
-    i < 3;
-    i++
-  ) {
-
-    ctx.beginPath();
-
-    ctx.ellipse(
-      p.x -
-      23 * s +
-      i * 23 * s,
-      p.y - 47 * s,
-      10 * s,
-      5 * s,
-      0,
-      0,
-      Math.PI * 2
-    );
-
-    ctx.fill();
-  }
 
 
   /*
@@ -6653,7 +8207,8 @@ function drawStall(
         ${
           .15 *
           (
-            1 - life
+            1 -
+            life
           )
         }
       )`;
@@ -6664,7 +8219,8 @@ function drawStall(
     ctx.arc(
       p.x -
       18 * s +
-      i * 12 * s +
+      i *
+      12 * s +
       Math.sin(
         time *
         .001 +
@@ -6679,7 +8235,8 @@ function drawStall(
 
       (
         5 +
-        life * 8
+        life *
+        8
       ) *
       s,
 
@@ -6693,145 +8250,228 @@ function drawStall(
 
 
 /* ==========================================================
-   OVERHEAD WIRES
+   WIRES
 ========================================================== */
 
-function drawOverheadWires() {
+function drawWire(
+  wire,
+  index
+) {
 
-  const wires = [
-
-    [
-      [860,2130],
-      [1370,2130]
-    ],
-
-    [
-      [2210,2120],
-      [2820,2120]
-    ],
-
-    [
-      [900,2960],
-      [1380,2960]
-    ]
-  ];
+  const a =
+    project(
+      wire.x1,
+      wire.y1,
+      wire.z
+    );
 
 
-  wires.forEach(
-    (
-      wire,
-      index
-    ) => {
-
-      const a =
-        project(
-          wire[0][0],
-          wire[0][1],
-          210
-        );
+  const b =
+    project(
+      wire.x2,
+      wire.y2,
+      wire.z
+    );
 
 
-      const b =
-        project(
-          wire[1][0],
-          wire[1][1],
-          210
-        );
+  const sag =
+    24 +
+    index *
+    2;
 
 
-      const sag =
-        28 +
-        index * 4;
+  ctx.strokeStyle =
+    "rgba(12,14,14,.92)";
 
 
-      ctx.strokeStyle =
-        "rgba(15,20,22,.88)";
+  ctx.lineWidth =
+    Math.max(
+      1,
+      2 *
+      (
+        a.scale +
+        b.scale
+      ) /
+      2
+    );
 
 
-      ctx.lineWidth =
-        Math.max(
-          1,
-          2 *
-          (
-            a.scale +
-            b.scale
-          ) /
-          2
-        );
+  ctx.beginPath();
 
-
-      ctx.beginPath();
-
-      ctx.moveTo(
-        a.x,
-        a.y
-      );
-
-
-      ctx.quadraticCurveTo(
-        (
-          a.x +
-          b.x
-        ) /
-        2,
-
-        (
-          a.y +
-          b.y
-        ) /
-        2 +
-        sag,
-
-        b.x,
-        b.y
-      );
-
-      ctx.stroke();
-
-
-      /*
-         second cable
-      */
-
-      ctx.strokeStyle =
-        "rgba(30,35,36,.78)";
-
-
-      ctx.beginPath();
-
-      ctx.moveTo(
-        a.x,
-        a.y + 8
-      );
-
-
-      ctx.quadraticCurveTo(
-        (
-          a.x +
-          b.x
-        ) /
-        2,
-
-        (
-          a.y +
-          b.y
-        ) /
-        2 +
-        sag +
-        13,
-
-        b.x,
-        b.y + 8
-      );
-
-      ctx.stroke();
-    }
+  ctx.moveTo(
+    a.x,
+    a.y
   );
+
+
+  ctx.quadraticCurveTo(
+    (
+      a.x +
+      b.x
+    ) /
+    2,
+
+    (
+      a.y +
+      b.y
+    ) /
+    2 +
+    sag,
+
+    b.x,
+    b.y
+  );
+
+  ctx.stroke();
 }
 
 
 /* ==========================================================
-   CITY OBJECT SORT
+   CLOTHES LINE
+========================================================== */
+
+function drawClothesLine(
+  line,
+  index
+) {
+
+  const a =
+    project(
+      line.x1,
+      line.y1,
+      line.z
+    );
+
+
+  const b =
+    project(
+      line.x2,
+      line.y2,
+      line.z
+    );
+
+
+  const sag = 18;
+
+
+  ctx.strokeStyle =
+    "rgba(110,110,103,.72)";
+
+
+  ctx.lineWidth =
+    Math.max(
+      1,
+      1.4 *
+      (
+        a.scale +
+        b.scale
+      ) /
+      2
+    );
+
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    a.x,
+    a.y
+  );
+
+
+  ctx.quadraticCurveTo(
+    (
+      a.x +
+      b.x
+    ) /
+    2,
+
+    (
+      a.y +
+      b.y
+    ) /
+    2 +
+    sag,
+
+    b.x,
+    b.y
+  );
+
+  ctx.stroke();
+
+
+  const colors = [
+    "#a95d50",
+    "#d0c2a7",
+    "#526e79",
+    "#6f5d78",
+    "#817c5b"
+  ];
+
+
+  for (
+    let i = 1;
+    i <= 5;
+    i++
+  ) {
+
+    const t =
+      i / 6;
+
+
+    const x =
+      a.x +
+      (
+        b.x -
+        a.x
+      ) *
+      t;
+
+
+    const y =
+      a.y +
+      (
+        b.y -
+        a.y
+      ) *
+      t +
+      Math.sin(
+        Math.PI *
+        t
+      ) *
+      sag;
+
+
+    const s =
+      (
+        a.scale +
+        b.scale
+      ) /
+      2;
+
+
+    ctx.fillStyle =
+      colors[
+        (
+          i +
+          index
+        ) %
+        colors.length
+      ];
+
+
+    ctx.fillRect(
+      x -
+      8 * s,
+      y,
+      16 * s,
+      23 * s
+    );
+  }
+}
+
+
+/* ==========================================================
+   CITY OBJECTS
 ========================================================== */
 
 function drawCityObjects(
@@ -6842,18 +8482,18 @@ function drawCityObjects(
 
 
   BUILDINGS.forEach(
-    b => {
+    building => {
 
       objects.push({
 
         y:
-          b.y +
-          b.h,
+          building.y +
+          building.h,
 
         draw:
           () =>
             drawBuilding(
-              b,
+              building,
               time
             )
       });
@@ -6968,11 +8608,8 @@ function drawCityObjects(
         draw:
           () =>
             drawCharacter(
-              npc.x,
-              npc.y,
-              npc.color,
-              false,
-              npc.type
+              npc,
+              false
             )
       });
     }
@@ -6987,9 +8624,7 @@ function drawCityObjects(
     draw:
       () =>
         drawCharacter(
-          player.x,
-          player.y,
-          "#27535a",
+          player,
           true
         )
   });
@@ -7012,10 +8647,70 @@ function drawCityObjects(
 
 
   /*
-     電線は頭上なので最後に描く
+     overhead layers
   */
 
-  drawOverheadWires();
+  const map =
+    getCurrentMap();
+
+
+  if (
+    map.wires
+  ) {
+
+    map.wires.forEach(
+      drawWire
+    );
+  }
+
+
+  else if (
+    currentMapId ===
+    "qianjiang"
+  ) {
+
+    const wires = [
+
+      {
+        x1:860,
+        y1:2130,
+        x2:1370,
+        y2:2130,
+        z:210
+      },
+
+      {
+        x1:2210,
+        y1:2120,
+        x2:2820,
+        y2:2120,
+        z:210
+      },
+
+      {
+        x1:900,
+        y1:2960,
+        x2:1380,
+        y2:2960,
+        z:210
+      }
+    ];
+
+
+    wires.forEach(
+      drawWire
+    );
+  }
+
+
+  if (
+    map.clothesLines
+  ) {
+
+    map.clothesLines.forEach(
+      drawClothesLine
+    );
+  }
 }
 
 
@@ -7061,20 +8756,17 @@ function drawInteriorFloor(
           y
         );
 
-
       const b =
         project(
           x + tile,
           y
         );
 
-
       const c =
         project(
           x + tile,
           y + tile
         );
-
 
       const d =
         project(
@@ -7123,7 +8815,6 @@ function drawInteriorFloor(
 
       ctx.strokeStyle =
         "rgba(255,255,255,.035)";
-
 
       ctx.stroke();
     }
@@ -7190,7 +8881,8 @@ function drawFurniture(
 
   ctx.fillRect(
     x,
-    y - visualH,
+    y -
+    visualH,
     w,
     visualH
   );
@@ -7205,12 +8897,15 @@ function drawFurniture(
 
   ctx.moveTo(
     x,
-    y - visualH
+    y -
+    visualH
   );
 
   ctx.lineTo(
-    x + w,
-    y - visualH
+    x +
+    w,
+    y -
+    visualH
   );
 
   ctx.lineTo(
@@ -7252,7 +8947,8 @@ function drawFurniture(
 
 
     ctx.strokeRect(
-      x + 6 * s,
+      x +
+      6 * s,
 
       y -
       visualH +
@@ -7327,7 +9023,34 @@ function drawExitMarker(
 
 
 /* ==========================================================
-   CONVENIENCE STORE
+   GENERIC INTERIOR CHARACTER
+========================================================== */
+
+function interiorCharacter(
+  x,
+  y,
+  type,
+  palette,
+  action = "idle",
+  gender = "male"
+) {
+
+  drawCharacter(
+    {
+      x,
+      y,
+      type,
+      palette,
+      action,
+      gender
+    },
+    false
+  );
+}
+
+
+/* ==========================================================
+   CONVENIENCE
 ========================================================== */
 
 function drawConvenience() {
@@ -7339,9 +9062,9 @@ function drawConvenience() {
   drawInteriorFloor(
     interior,
     {
-      floor: "#11191c",
-      tileA: "#182226",
-      tileB: "#151e22"
+      floor:"#11191c",
+      tileA:"#182226",
+      tileB:"#151e22"
     }
   );
 
@@ -7374,26 +9097,22 @@ function drawConvenience() {
           shelf.h,
 
         draw:
-          () => {
-
+          () =>
             drawFurniture(
               shelf,
               {
-                height: 78,
+                height:78,
 
-                side:
-                  "#283236",
+                side:"#283236",
 
-                top:
-                  "#47565b",
+                top:"#47565b",
 
                 glow:
                   index % 2
                   ? "#45e7ff"
                   : "#ff536c"
               }
-            );
-          }
+            )
       });
     }
   );
@@ -7401,39 +9120,10 @@ function drawConvenience() {
 
   objects.push({
 
-    y: 160,
-
-    draw:
-      () => {
-
-        drawFurniture(
-          {
-            x:120,
-            y:70,
-            w:800,
-            h:90
-          },
-          {
-            height:135,
-
-            side:"#162a30",
-
-            top:"#334c52",
-
-            glow:"#45e7ff"
-          }
-        );
-      }
-  });
-
-
-  objects.push({
-
     y:680,
 
     draw:
-      () => {
-
+      () =>
         drawFurniture(
           {
             x:630,
@@ -7443,15 +9133,11 @@ function drawConvenience() {
           },
           {
             height:90,
-
             side:"#26353a",
-
             top:"#56676c",
-
             glow:"#ff536c"
           }
-        );
-      }
+        )
   });
 
 
@@ -7460,14 +9146,15 @@ function drawConvenience() {
     y:590,
 
     draw:
-      () => {
-
-        drawCharacter(
+      () =>
+        interiorCharacter(
           780,
           590,
-          "#754958"
-        );
-      }
+          "shopkeeper",
+          "red",
+          "idle",
+          "female"
+        )
   });
 
 
@@ -7477,15 +9164,11 @@ function drawConvenience() {
       player.y,
 
     draw:
-      () => {
-
+      () =>
         drawCharacter(
-          player.x,
-          player.y,
-          "#27535a",
+          player,
           true
-        );
-      }
+        )
   });
 
 
@@ -7542,8 +9225,7 @@ function drawRestaurant(
     y:200,
 
     draw:
-      () => {
-
+      () =>
         drawFurniture(
           {
             x:100,
@@ -7553,44 +9235,10 @@ function drawRestaurant(
           },
           {
             height:150,
-
             side:"#332522",
-
             top:"#5a4037"
           }
-        );
-
-
-        const p =
-          project(
-            525,
-            200
-          );
-
-
-        ctx.fillStyle =
-          "#e5c69c";
-
-
-        ctx.font =
-          `bold ${
-            14 *
-            p.scale
-          }px sans-serif`;
-
-
-        ctx.textAlign =
-          "center";
-
-
-        ctx.fillText(
-          "杭帮菜 · 面 · 夜宵 · 小笼",
-          p.x,
-          p.y -
-          95 *
-          p.scale
-        );
-      }
+        )
   });
 
 
@@ -7599,8 +9247,7 @@ function drawRestaurant(
     y:340,
 
     draw:
-      () => {
-
+      () =>
         drawFurniture(
           {
             x:140,
@@ -7610,29 +9257,22 @@ function drawRestaurant(
           },
           {
             height:78,
-
             side:"#4c2d22",
-
             top:"#7c4b35",
-
             glow:"#ff604e"
           }
-        );
-      }
+        )
   });
 
 
-  const tables = [
-
+  [
     {x:130,y:470,w:140,h:100},
 
     {x:340,y:470,w:140,h:100},
 
     {x:550,y:470,w:140,h:100}
-  ];
-
-
-  tables.forEach(
+  ]
+  .forEach(
     table => {
 
       objects.push({
@@ -7642,19 +9282,15 @@ function drawRestaurant(
           table.h,
 
         draw:
-          () => {
-
+          () =>
             drawFurniture(
               table,
               {
                 height:55,
-
                 side:"#3c281f",
-
                 top:"#704936"
               }
-            );
-          }
+            )
       });
     }
   );
@@ -7665,14 +9301,13 @@ function drawRestaurant(
     y:230,
 
     draw:
-      () => {
-
-        drawCharacter(
+      () =>
+        interiorCharacter(
           520,
           230,
-          "#e4ddd1"
-        );
-      }
+          "shopkeeper",
+          "cream"
+        )
   });
 
 
@@ -7681,14 +9316,14 @@ function drawRestaurant(
     y:430,
 
     draw:
-      () => {
-
-        drawCharacter(
+      () =>
+        interiorCharacter(
           310,
           430,
-          "#565e72"
-        );
-      }
+          "diner",
+          "navy",
+          "eat"
+        )
   });
 
 
@@ -7697,14 +9332,14 @@ function drawRestaurant(
     y:610,
 
     draw:
-      () => {
-
-        drawCharacter(
+      () =>
+        interiorCharacter(
           620,
           610,
-          "#74544b"
-        );
-      }
+          "diner",
+          "brown",
+          "eat"
+        )
   });
 
 
@@ -7714,15 +9349,11 @@ function drawRestaurant(
       player.y,
 
     draw:
-      () => {
-
+      () =>
         drawCharacter(
-          player.x,
-          player.y,
-          "#27535a",
+          player,
           true
-        );
-      }
+        )
   });
 
 
@@ -7740,128 +9371,6 @@ function drawRestaurant(
     object =>
       object.draw()
   );
-
-
-  /*
-     lanterns
-  */
-
-  for (
-    let i = 0;
-    i < 6;
-    i++
-  ) {
-
-    const p =
-      project(
-        180 +
-        i * 130,
-        120,
-        180
-      );
-
-
-    glow(
-      "#ff493e",
-      16
-    );
-
-
-    ctx.fillStyle =
-      "#dc3f36";
-
-
-    ctx.beginPath();
-
-    ctx.ellipse(
-      p.x,
-      p.y,
-
-      13 *
-      p.scale,
-
-      19 *
-      p.scale,
-
-      0,
-      0,
-      Math.PI * 2
-    );
-
-    ctx.fill();
-
-
-    noGlow();
-  }
-
-
-  /*
-     kitchen steam
-  */
-
-  for (
-    let i = 0;
-    i < 5;
-    i++
-  ) {
-
-    const p =
-      project(
-        410 +
-        i * 28,
-        245,
-        50
-      );
-
-
-    const life =
-      (
-        time *
-        .0002 +
-        i * .19
-      ) % 1;
-
-
-    ctx.fillStyle =
-      `rgba(
-        230,
-        225,
-        215,
-        ${
-          .13 *
-          (
-            1 - life
-          )
-        }
-      )`;
-
-
-    ctx.beginPath();
-
-    ctx.arc(
-      p.x +
-      Math.sin(
-        time *
-        .001 +
-        i
-      ) *
-      8,
-
-      p.y -
-      life * 70,
-
-      (
-        8 +
-        life * 15
-      ) *
-      p.scale,
-
-      0,
-      Math.PI * 2
-    );
-
-    ctx.fill();
-  }
 
 
   drawExitMarker(
@@ -7899,8 +9408,7 @@ function drawOffice() {
     y:200,
 
     draw:
-      () => {
-
+      () =>
         drawFurniture(
           {
             x:120,
@@ -7910,56 +9418,11 @@ function drawOffice() {
           },
           {
             height:170,
-
             side:"#15262e",
-
             top:"#29424b",
-
             glow:"#d55cff"
           }
-        );
-
-
-        const p =
-          project(
-            550,
-            200
-          );
-
-
-        glow(
-          "#d55cff",
-          15 *
-          p.scale
-        );
-
-
-        ctx.fillStyle =
-          "#d55cff";
-
-
-        ctx.font =
-          `bold ${
-            22 *
-            p.scale
-          }px sans-serif`;
-
-
-        ctx.textAlign =
-          "center";
-
-
-        ctx.fillText(
-          "未来都市研究所",
-          p.x,
-          p.y -
-          105 *
-          p.scale
-        );
-
-
-        noGlow();
-      }
+        )
   });
 
 
@@ -7968,8 +9431,7 @@ function drawOffice() {
     y:420,
 
     draw:
-      () => {
-
+      () =>
         drawFurniture(
           {
             x:150,
@@ -7979,147 +9441,41 @@ function drawOffice() {
           },
           {
             height:85,
-
             side:"#25333a",
-
             top:"#52646b",
-
             glow:"#48e6ff"
           }
-        );
-      }
-  });
-
-
-  objects.push({
-
-    y:420,
-
-    draw:
-      () => {
-
-        const p =
-          project(
-            825,
-            420
-          );
-
-
-        const s =
-          p.scale;
-
-
-        ctx.fillStyle =
-          "#17242a";
-
-
-        ctx.fillRect(
-          p.x -
-          100 * s,
-
-          p.y -
-          70 * s,
-
-          200 * s,
-          70 * s
-        );
-
-
-        glow(
-          "#48e6ff",
-          18 * s
-        );
-
-
-        ctx.strokeStyle =
-          "#48e6ff";
-
-
-        ctx.strokeRect(
-          p.x -
-          80 * s,
-
-          p.y -
-          145 * s,
-
-          160 * s,
-          70 * s
-        );
-
-
-        ctx.fillStyle =
-          "rgba(72,230,255,.08)";
-
-
-        ctx.fillRect(
-          p.x -
-          80 * s,
-
-          p.y -
-          145 * s,
-
-          160 * s,
-          70 * s
-        );
-
-
-        noGlow();
-
-
-        ctx.fillStyle =
-          "#9af5ff";
-
-
-        ctx.font =
-          `${
-            10 * s
-          }px monospace`;
-
-
-        ctx.textAlign =
-          "center";
-
-
-        ctx.fillText(
-          "HANGZHOU // CITY DATA",
-          p.x,
-          p.y -
-          113 * s
-        );
-      }
+        )
   });
 
 
   [
     {x:170,y:520,w:220,h:90},
+
     {x:710,y:520,w:220,h:90}
   ]
-    .forEach(
-      sofa => {
+  .forEach(
+    sofa => {
 
-        objects.push({
+      objects.push({
 
-          y:
-            sofa.y +
-            sofa.h,
+        y:
+          sofa.y +
+          sofa.h,
 
-          draw:
-            () => {
-
-              drawFurniture(
-                sofa,
-                {
-                  height:65,
-
-                  side:"#25323b",
-
-                  top:"#3e505a"
-                }
-              );
-            }
-        });
-      }
-    );
+        draw:
+          () =>
+            drawFurniture(
+              sofa,
+              {
+                height:65,
+                side:"#25323b",
+                top:"#3e505a"
+              }
+            )
+      });
+    }
+  );
 
 
   objects.push({
@@ -8127,14 +9483,13 @@ function drawOffice() {
     y:285,
 
     draw:
-      () => {
-
-        drawCharacter(
+      () =>
+        interiorCharacter(
           275,
           285,
-          "#495e73"
-        );
-      }
+          "office",
+          "navy"
+        )
   });
 
 
@@ -8144,15 +9499,11 @@ function drawOffice() {
       player.y,
 
     draw:
-      () => {
-
+      () =>
         drawCharacter(
-          player.x,
-          player.y,
-          "#27535a",
+          player,
           true
-        );
-      }
+        )
   });
 
 
@@ -8170,6 +9521,426 @@ function drawOffice() {
     object =>
       object.draw()
   );
+
+
+  drawExitMarker(
+    interior.exit.x,
+    interior.exit.y
+  );
+}
+
+
+/* ==========================================================
+   NOODLE SHOP
+========================================================== */
+
+function drawNoodleShop(
+  time
+) {
+
+  const interior =
+    INTERIORS.noodle;
+
+
+  drawInteriorFloor(
+    interior,
+    {
+      floor:"#1b130f",
+      tileA:"#2a1c16",
+      tileB:"#241812"
+    }
+  );
+
+
+  const objects = [];
+
+
+  objects.push({
+
+    y:210,
+
+    draw:
+      () =>
+        drawFurniture(
+          {
+            x:100,
+            y:80,
+            w:800,
+            h:130
+          },
+          {
+            height:145,
+            side:"#3b271f",
+            top:"#6d4936",
+            glow:"#ff5d4d"
+          }
+        )
+  });
+
+
+  objects.push({
+
+    y:350,
+
+    draw:
+      () =>
+        drawFurniture(
+          {
+            x:120,
+            y:270,
+            w:590,
+            h:80
+          },
+          {
+            height:72,
+            side:"#4a2d22",
+            top:"#77503a"
+          }
+        )
+  });
+
+
+  [
+    {x:130,y:470,w:150,h:90},
+
+    {x:350,y:470,w:150,h:90},
+
+    {x:570,y:470,w:150,h:90}
+  ]
+  .forEach(
+    table => {
+
+      objects.push({
+
+        y:
+          table.y +
+          table.h,
+
+        draw:
+          () =>
+            drawFurniture(
+              table,
+              {
+                height:52,
+                side:"#402b22",
+                top:"#79523d"
+              }
+            )
+      });
+    }
+  );
+
+
+  objects.push({
+
+    y:235,
+
+    draw:
+      () =>
+        interiorCharacter(
+          480,
+          235,
+          "shopkeeper",
+          "cream",
+          "idle",
+          "male"
+        )
+  });
+
+
+  objects.push({
+
+    y:590,
+
+    draw:
+      () =>
+        interiorCharacter(
+          430,
+          590,
+          "diner",
+          "gray",
+          "eat",
+          "male"
+        )
+  });
+
+
+  objects.push({
+
+    y:
+      player.y,
+
+    draw:
+      () =>
+        drawCharacter(
+          player,
+          true
+        )
+  });
+
+
+  objects.sort(
+    (
+      a,
+      b
+    ) =>
+      a.y -
+      b.y
+  );
+
+
+  objects.forEach(
+    object =>
+      object.draw()
+  );
+
+
+  /*
+     steam
+  */
+
+  for (
+    let i = 0;
+    i < 5;
+    i++
+  ) {
+
+    const p =
+      project(
+        400 +
+        i * 30,
+        245,
+        45
+      );
+
+
+    const life =
+      (
+        time *
+        .0002 +
+        i * .18
+      ) % 1;
+
+
+    ctx.fillStyle =
+      `rgba(
+        230,
+        225,
+        215,
+        ${
+          .14 *
+          (
+            1 -
+            life
+          )
+        }
+      )`;
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+      p.x +
+      Math.sin(
+        time *
+        .001 +
+        i
+      ) *
+      7,
+
+      p.y -
+      life *
+      65,
+
+      (
+        7 +
+        life *
+        14
+      ) *
+      p.scale,
+
+      0,
+      Math.PI * 2
+    );
+
+    ctx.fill();
+  }
+
+
+  drawExitMarker(
+    interior.exit.x,
+    interior.exit.y
+  );
+}
+
+
+/* ==========================================================
+   TEA HOUSE
+========================================================== */
+
+function drawTeaHouse() {
+
+  const interior =
+    INTERIORS.tea;
+
+
+  drawInteriorFloor(
+    interior,
+    {
+      floor:"#151811",
+      tileA:"#20271a",
+      tileB:"#1a2116"
+    }
+  );
+
+
+  const objects = [];
+
+
+  objects.push({
+
+    y:200,
+
+    draw:
+      () =>
+        drawFurniture(
+          {
+            x:100,
+            y:80,
+            w:800,
+            h:120
+          },
+          {
+            height:145,
+            side:"#283326",
+            top:"#4d6249",
+            glow:"#69c989"
+          }
+        )
+  });
+
+
+  [
+    {x:130,y:260,w:220,h:110},
+
+    {x:650,y:260,w:220,h:110},
+
+    {x:160,y:500,w:180,h:90},
+
+    {x:660,y:500,w:180,h:90}
+  ]
+  .forEach(
+    table => {
+
+      objects.push({
+
+        y:
+          table.y +
+          table.h,
+
+        draw:
+          () =>
+            drawFurniture(
+              table,
+              {
+                height:55,
+                side:"#38412f",
+                top:"#657258"
+              }
+            )
+      });
+    }
+  );
+
+
+  objects.push({
+
+    y:250,
+
+    draw:
+      () =>
+        interiorCharacter(
+          500,
+          250,
+          "shopkeeper",
+          "green",
+          "idle",
+          "female"
+        )
+  });
+
+
+  objects.push({
+
+    y:
+      player.y,
+
+    draw:
+      () =>
+        drawCharacter(
+          player,
+          true
+        )
+  });
+
+
+  objects.sort(
+    (
+      a,
+      b
+    ) =>
+      a.y -
+      b.y
+  );
+
+
+  objects.forEach(
+    object =>
+      object.draw()
+  );
+
+
+  /*
+     tea jars
+  */
+
+  for (
+    let i = 0;
+    i < 7;
+    i++
+  ) {
+
+    const p =
+      project(
+        210 +
+        i * 90,
+        170,
+        60
+      );
+
+
+    ctx.fillStyle =
+      i % 2
+      ? "#6f5b3c"
+      : "#53664a";
+
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+      p.x,
+      p.y,
+      11 *
+      p.scale,
+      16 *
+      p.scale,
+      0,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.fill();
+  }
 
 
   drawExitMarker(
@@ -8199,7 +9970,7 @@ function drawRain(
 
   for (
     let i = 0;
-    i < 90;
+    i < 95;
     i++
   ) {
 
@@ -8259,12 +10030,17 @@ function drawAtmosphere() {
 
   ctx.save();
 
-
   ctx.globalCompositeOperation =
     "screen";
 
 
-  let g =
+  const old =
+    getCurrentMap()
+      .ambience ===
+    "oldtown";
+
+
+  let gradient =
     ctx.createRadialGradient(
       W * .12,
       H * .60,
@@ -8276,27 +10052,33 @@ function drawAtmosphere() {
     );
 
 
-  g.addColorStop(
+  gradient.addColorStop(
     0,
-    "rgba(33,180,220,.075)"
+    old
+    ? "rgba(224,104,53,.055)"
+    : "rgba(33,180,220,.075)"
   );
 
 
-  g.addColorStop(
+  gradient.addColorStop(
     1,
-    "rgba(33,180,220,0)"
+    "rgba(0,0,0,0)"
   );
 
 
-  ctx.fillStyle = g;
+  ctx.fillStyle =
+    gradient;
+
 
   ctx.fillRect(
-    0, 0,
-    W, H
+    0,
+    0,
+    W,
+    H
   );
 
 
-  g =
+  gradient =
     ctx.createRadialGradient(
       W * .88,
       H * .48,
@@ -8308,27 +10090,167 @@ function drawAtmosphere() {
     );
 
 
-  g.addColorStop(
+  gradient.addColorStop(
     0,
-    "rgba(205,48,180,.065)"
+    old
+    ? "rgba(255,173,73,.045)"
+    : "rgba(205,48,180,.065)"
   );
 
 
-  g.addColorStop(
+  gradient.addColorStop(
     1,
-    "rgba(205,48,180,0)"
+    "rgba(0,0,0,0)"
   );
 
 
-  ctx.fillStyle = g;
+  ctx.fillStyle =
+    gradient;
+
 
   ctx.fillRect(
-    0, 0,
-    W, H
+    0,
+    0,
+    W,
+    H
   );
 
 
   ctx.restore();
+}
+
+
+/* ==========================================================
+   MAP EDGE HINT
+========================================================== */
+
+function drawMapExitHints() {
+
+  const map =
+    getCurrentMap();
+
+
+  for (
+    const exit of
+    map.exits || []
+  ) {
+
+    let x =
+      exit.x +
+      exit.w / 2;
+
+
+    let y =
+      exit.y +
+      exit.h / 2;
+
+
+    if (
+      distance(
+        player.x,
+        player.y,
+        x,
+        y
+      ) >
+      600
+    ) {
+
+      continue;
+    }
+
+
+    const p =
+      project(
+        x,
+        y,
+        30
+      );
+
+
+    const pulse =
+      .65 +
+      Math.sin(
+        performance.now() *
+        .004
+      ) *
+      .18;
+
+
+    ctx.globalAlpha =
+      pulse;
+
+
+    glow(
+      "#ffc86a",
+      14 *
+      p.scale
+    );
+
+
+    ctx.fillStyle =
+      "rgba(15,15,13,.88)";
+
+
+    roundRectPath(
+      p.x -
+      90 * p.scale,
+
+      p.y -
+      55 * p.scale,
+
+      180 * p.scale,
+
+      34 * p.scale,
+
+      8 * p.scale
+    );
+
+    ctx.fill();
+
+
+    ctx.strokeStyle =
+      "#ffc86a";
+
+
+    ctx.lineWidth =
+      1.5 *
+      p.scale;
+
+
+    ctx.stroke();
+
+
+    noGlow();
+
+
+    ctx.fillStyle =
+      "#ffe0a1";
+
+
+    ctx.font =
+      `bold ${
+        Math.max(
+          8,
+          11 *
+          p.scale
+        )
+      }px sans-serif`;
+
+
+    ctx.textAlign =
+      "center";
+
+
+    ctx.fillText(
+      exit.label,
+      p.x,
+      p.y -
+      33 * p.scale
+    );
+
+
+    ctx.globalAlpha = 1;
+  }
 }
 
 
@@ -8347,6 +10269,8 @@ function drawCity(
   drawCityObjects(
     time
   );
+
+  drawMapExitHints();
 
   drawRain(
     time
@@ -8372,9 +10296,7 @@ function drawInterior(
     "convenience"
   ) {
 
-    drawConvenience(
-      time
-    );
+    drawConvenience();
   }
 
 
@@ -8394,10 +10316,183 @@ function drawInterior(
     "office"
   ) {
 
-    drawOffice(
+    drawOffice();
+  }
+
+
+  else if (
+    currentInterior ===
+    "noodle"
+  ) {
+
+    drawNoodleShop(
       time
     );
   }
+
+
+  else if (
+    currentInterior ===
+    "tea"
+  ) {
+
+    drawTeaHouse();
+  }
+}
+
+
+/* ==========================================================
+   TRANSITION OVERLAY
+========================================================== */
+
+function drawTransitionOverlay() {
+
+  if (
+    !transition.active
+  ) {
+
+    return;
+  }
+
+
+  ctx.save();
+
+
+  ctx.fillStyle =
+    `rgba(
+      3,
+      4,
+      6,
+      ${transition.alpha}
+    )`;
+
+
+  ctx.fillRect(
+    0,
+    0,
+    W,
+    H
+  );
+
+
+  if (
+    transition.phase ===
+    "title" ||
+    transition.phase ===
+    "fadeIn"
+  ) {
+
+    const titleAlpha =
+      transition.phase ===
+      "title"
+      ? Math.min(
+          1,
+          transition.timer *
+          2.2
+        )
+      : transition.alpha;
+
+
+    ctx.globalAlpha =
+      titleAlpha;
+
+
+    ctx.textAlign =
+      "center";
+
+
+    ctx.fillStyle =
+      "rgba(255,255,255,.52)";
+
+
+    ctx.font =
+      "12px sans-serif";
+
+
+    ctx.fillText(
+      transition.chapter,
+      W / 2,
+      H / 2 -
+      88
+    );
+
+
+    ctx.fillStyle =
+      "#f4f6f5";
+
+
+    ctx.font =
+      "bold 32px sans-serif";
+
+
+    ctx.fillText(
+      transition.title,
+      W / 2,
+      H / 2 -
+      38
+    );
+
+
+    ctx.fillStyle =
+      "rgba(230,235,232,.72)";
+
+
+    ctx.font =
+      "14px sans-serif";
+
+
+    ctx.fillText(
+      transition.subtitle,
+      W / 2,
+      H / 2 -
+      5
+    );
+
+
+    ctx.fillStyle =
+      "rgba(255,211,145,.68)";
+
+
+    ctx.font =
+      "12px monospace";
+
+
+    ctx.fillText(
+      `${transition.clock}  ·  ${transition.weather}`,
+      W / 2,
+      H / 2 +
+      38
+    );
+
+
+    ctx.strokeStyle =
+      "rgba(255,199,102,.34)";
+
+
+    ctx.lineWidth = 1;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      W / 2 -
+      80,
+      H / 2 +
+      58
+    );
+
+    ctx.lineTo(
+      W / 2 +
+      80,
+      H / 2 +
+      58
+    );
+
+    ctx.stroke();
+  }
+
+
+  ctx.restore();
 }
 
 
@@ -8410,14 +10505,15 @@ function draw(
 ) {
 
   ctx.clearRect(
-    0, 0,
-    W, H
+    0,
+    0,
+    W,
+    H
   );
 
 
   if (
-    scene ===
-    "city"
+    scene === "city"
   ) {
 
     drawCity(
@@ -8431,7 +10527,32 @@ function draw(
       time
     );
   }
+
+
+  drawTransitionOverlay();
 }
+
+
+/* ==========================================================
+   INITIAL LOCATION UI
+========================================================== */
+
+function initializeLocationUI() {
+
+  const map =
+    getCurrentMap();
+
+
+  locationTitle.textContent =
+    map.name;
+
+
+  locationSub.textContent =
+    `${map.englishName} · ${map.district}`;
+}
+
+
+initializeLocationUI();
 
 
 /* ==========================================================
@@ -8468,6 +10589,11 @@ function loop(
 
 
   updateInteraction();
+
+
+  updateTransition(
+    dt
+  );
 
 
   draw(
